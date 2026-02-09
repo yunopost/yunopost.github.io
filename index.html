@@ -39,6 +39,22 @@
             box-shadow: 0 8px 16px rgba(0,0,0,0.1);
         }
         
+        .games-section {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 25px;
+        }
+        
+        .games-form, .games-display {
+            background: white;
+        }
+        
+        @media (max-width: 968px) {
+            .games-section {
+                grid-template-columns: 1fr;
+            }
+        }
+        
         .section h2 {
             color: #667eea;
             margin-bottom: 20px;
@@ -132,6 +148,29 @@
             padding: 15px;
             border-radius: 8px;
             border-left: 4px solid #667eea;
+            position: relative;
+        }
+        
+        .game-item .delete-btn {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: #e74c3c;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            cursor: pointer;
+            display: none;
+        }
+        
+        .game-item .delete-btn:hover {
+            background: #c0392b;
+        }
+        
+        .admin-mode .game-item .delete-btn {
+            display: block;
         }
         
         .game-item h3 {
@@ -262,70 +301,6 @@
     <div class="container">
         <h1>🎲 Board Game Night Organizer</h1>
         
-        <!-- Admin Controls -->
-        <div class="section">
-            <h2>⚙️ Admin Controls</h2>
-            <div id="adminLogin" style="display: block;">
-                <div class="form-group">
-                    <label for="adminPassword">Admin Password:</label>
-                    <input type="password" id="adminPassword" placeholder="Enter admin password">
-                </div>
-                <button onclick="adminLogin()">Login as Admin</button>
-            </div>
-            <div id="adminPanel" style="display: none;">
-                <div style="background: #d4edda; padding: 10px; border-radius: 6px; margin-bottom: 15px; color: #155724;">
-                    ✓ Logged in as Admin
-                    <button onclick="adminLogout()" class="secondary" style="float: right; padding: 6px 12px;">Logout</button>
-                </div>
-                <div class="admin-controls">
-                    <div class="form-group">
-                        <label for="votingDeadline">Voting Deadline:</label>
-                        <input type="date" id="votingDeadline">
-                    </div>
-                    <button onclick="saveVotingDeadline()">Set Voting Deadline</button>
-                    <button class="danger" onclick="resetForNewWeek()">Reset for New Week</button>
-                    <div class="form-group" style="margin-top: 20px;">
-                        <label for="newAdminPassword">Change Admin Password:</label>
-                        <input type="password" id="newAdminPassword" placeholder="Enter new password">
-                        <button onclick="changeAdminPassword()" style="margin-top: 10px;">Update Password</button>
-                    </div>
-                </div>
-            </div>
-            <div id="votingStatus" class="voting-status"></div>
-        </div>
-        
-        <!-- Add Games -->
-        <div class="section">
-            <h2>➕ Add a Game</h2>
-            <div class="form-group">
-                <label for="ownerName">Your Name:</label>
-                <input type="text" id="ownerName" placeholder="Enter your name">
-            </div>
-            <div class="form-group">
-                <label for="gameName">Game Name:</label>
-                <input type="text" id="gameName" placeholder="Enter game name">
-            </div>
-            <div class="two-column">
-                <div class="form-group">
-                    <label for="minPlayers">Min Players:</label>
-                    <input type="number" id="minPlayers" min="1" value="2">
-                </div>
-                <div class="form-group">
-                    <label for="maxPlayers">Max Players:</label>
-                    <input type="number" id="maxPlayers" min="1" value="4">
-                </div>
-            </div>
-            <div class="form-group">
-                <label class="checkbox-label">
-                    <input type="checkbox" id="canTeach">
-                    I can teach this game
-                </label>
-            </div>
-            <button onclick="addGame()">Add Game</button>
-            
-            <div id="gamesList" class="game-list" style="margin-top: 20px;"></div>
-        </div>
-        
         <!-- Voting -->
         <div class="section">
             <h2>🗳️ Vote for This Week's Games</h2>
@@ -363,6 +338,44 @@
             <div id="topGames"></div>
         </div>
         
+        <!-- Add Games -->
+        <div class="section">
+            <h2>➕ Add a Game</h2>
+            <div class="games-section">
+                <div class="games-form">
+                    <div class="form-group">
+                        <label for="ownerName">Your Name:</label>
+                        <input type="text" id="ownerName" placeholder="Enter your name">
+                    </div>
+                    <div class="form-group">
+                        <label for="gameName">Game Name:</label>
+                        <input type="text" id="gameName" placeholder="Enter game name">
+                    </div>
+                    <div class="two-column">
+                        <div class="form-group">
+                            <label for="minPlayers">Min Players:</label>
+                            <input type="number" id="minPlayers" min="1" value="2">
+                        </div>
+                        <div class="form-group">
+                            <label for="maxPlayers">Max Players:</label>
+                            <input type="number" id="maxPlayers" min="1" value="4">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="canTeach">
+                            I can teach this game
+                        </label>
+                    </div>
+                    <button onclick="addGame()">Add Game</button>
+                </div>
+                <div class="games-display">
+                    <h3 style="margin-top: 0; color: #667eea;">Available Games</h3>
+                    <div id="gamesList" class="game-list"></div>
+                </div>
+            </div>
+        </div>
+        
         <!-- History -->
         <div class="section">
             <h2>📜 Game Night History</h2>
@@ -386,6 +399,38 @@
             </div>
             
             <div id="historyList" style="margin-top: 20px;"></div>
+        </div>
+        
+        <!-- Admin Controls -->
+        <div class="section">
+            <h2>⚙️ Admin Controls</h2>
+            <div id="adminLogin" style="display: block;">
+                <div class="form-group">
+                    <label for="adminPassword">Admin Password:</label>
+                    <input type="password" id="adminPassword" placeholder="Enter admin password">
+                </div>
+                <button onclick="adminLogin()">Login as Admin</button>
+            </div>
+            <div id="adminPanel" style="display: none;">
+                <div style="background: #d4edda; padding: 10px; border-radius: 6px; margin-bottom: 15px; color: #155724;">
+                    ✓ Logged in as Admin
+                    <button onclick="adminLogout()" class="secondary" style="float: right; padding: 6px 12px;">Logout</button>
+                </div>
+                <div class="admin-controls">
+                    <div class="form-group">
+                        <label for="votingDeadline">Voting Deadline:</label>
+                        <input type="date" id="votingDeadline">
+                    </div>
+                    <button onclick="saveVotingDeadline()">Set Voting Deadline</button>
+                    <button class="danger" onclick="resetForNewWeek()">Reset for New Week</button>
+                    <div class="form-group" style="margin-top: 20px;">
+                        <label for="newAdminPassword">Change Admin Password:</label>
+                        <input type="password" id="newAdminPassword" placeholder="Enter new password">
+                        <button onclick="changeAdminPassword()" style="margin-top: 10px;">Update Password</button>
+                    </div>
+                </div>
+            </div>
+            <div id="votingStatus" class="voting-status"></div>
         </div>
     </div>
 
@@ -453,6 +498,9 @@
                 document.getElementById('winnerRecordingSection').style.display = 'block';
                 document.getElementById('adminPassword').value = '';
                 
+                // Refresh games display to show delete buttons
+                displayGames();
+                
                 // Show a notice about changing the default password
                 if (gameData.adminPassword === 'admin123') {
                     alert('⚠️ You are using the default password "admin123". Please change it below for security!');
@@ -469,6 +517,9 @@
             document.getElementById('adminLogin').style.display = 'block';
             document.getElementById('adminPanel').style.display = 'none';
             document.getElementById('winnerRecordingSection').style.display = 'none';
+            
+            // Refresh games display to hide delete buttons
+            displayGames();
         }
 
         // Change admin password
@@ -678,6 +729,43 @@
             updateAllDisplays();
         }
 
+        // Delete a game (admin only)
+        async function deleteGame(gameId) {
+            if (!isAdminLoggedIn) {
+                alert('Admin access required');
+                return;
+            }
+
+            const game = gameData.games.find(g => g.id === gameId);
+            if (!game) return;
+
+            if (!confirm(`Are you sure you want to delete "${game.name}"?`)) {
+                return;
+            }
+
+            // Remove the game
+            gameData.games = gameData.games.filter(g => g.id !== gameId);
+
+            // Remove any votes for this game
+            gameData.votes = gameData.votes.map(vote => {
+                const newChoices = vote.choices.filter(choice => choice !== gameId);
+                // If we removed choices, we need to handle that
+                if (newChoices.length < vote.choices.length) {
+                    // Pad with null values if needed
+                    while (newChoices.length < 3) {
+                        newChoices.push(null);
+                    }
+                }
+                return {
+                    ...vote,
+                    choices: newChoices
+                };
+            }).filter(vote => vote.choices.some(c => c !== null)); // Remove votes with no valid choices
+
+            await saveData();
+            updateAllDisplays();
+        }
+
         // Display games list
         function displayGames() {
             const gamesDiv = document.getElementById('gamesList');
@@ -687,6 +775,13 @@
                 return;
             }
 
+            // Add or remove admin-mode class
+            if (isAdminLoggedIn) {
+                gamesDiv.classList.add('admin-mode');
+            } else {
+                gamesDiv.classList.remove('admin-mode');
+            }
+
             gamesDiv.innerHTML = gameData.games.map(game => {
                 const ownersList = game.owners.map(o => 
                     `${o.name}${o.canTeach ? ' (can teach)' : ''}`
@@ -694,6 +789,7 @@
 
                 return `
                     <div class="game-item">
+                        <button class="delete-btn" onclick="deleteGame(${game.id})">Delete</button>
                         <h3>${game.name}</h3>
                         <div class="game-detail">Brought by: ${ownersList}</div>
                         <div class="game-detail">Players: ${game.minPlayers}-${game.maxPlayers}</div>
