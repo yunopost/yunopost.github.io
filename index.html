@@ -404,7 +404,23 @@
         // Load data on startup
         async function loadData() {
             try {
-                const result = await window.storage.get('boardgame-data');
+                let result = null;
+                
+                // Try window.storage first
+                if (window.storage && window.storage.get) {
+                    result = await window.storage.get('boardgame-data');
+                    console.log('Loaded from window.storage');
+                }
+                
+                // Fallback to localStorage
+                if (!result || !result.value) {
+                    const localData = localStorage.getItem('boardgame-data');
+                    if (localData) {
+                        result = { value: localData };
+                        console.log('Loaded from localStorage');
+                    }
+                }
+                
                 if (result && result.value) {
                     gameData = JSON.parse(result.value);
                 }
@@ -415,7 +431,7 @@
                     await saveData();
                 }
             } catch (error) {
-                console.log('No existing data found, starting fresh');
+                console.log('No existing data found, starting fresh', error);
                 gameData.adminPassword = 'admin123'; // Default password
                 await saveData();
             }
@@ -474,10 +490,26 @@
         // Save data
         async function saveData() {
             try {
-                await window.storage.set('boardgame-data', JSON.stringify(gameData));
+                // Try using window.storage first (Claude's persistent storage)
+                if (window.storage && window.storage.set) {
+                    await window.storage.set('boardgame-data', JSON.stringify(gameData));
+                    console.log('Data saved to window.storage');
+                } else {
+                    // Fallback to localStorage
+                    localStorage.setItem('boardgame-data', JSON.stringify(gameData));
+                    console.log('Data saved to localStorage (fallback)');
+                }
             } catch (error) {
                 console.error('Error saving data:', error);
-                alert('Error saving data. Please try again.');
+                // Try localStorage as final fallback
+                try {
+                    localStorage.setItem('boardgame-data', JSON.stringify(gameData));
+                    console.log('Saved to localStorage after error');
+                } catch (e) {
+                    console.error('localStorage also failed:', e);
+                    alert('Error saving data. Please try again.');
+                    throw error;
+                }
             }
         }
 
@@ -495,9 +527,12 @@
             const warningDiv = document.getElementById('votingWarning');
             const deadlineInput = document.getElementById('votingDeadline');
             
+            console.log('updateVotingStatus called, deadline:', gameData.votingDeadline);
+            
             // Update the input field with current deadline
             if (gameData.votingDeadline) {
                 deadlineInput.value = gameData.votingDeadline;
+                console.log('Set input field to:', gameData.votingDeadline);
             }
             
             if (!gameData.votingDeadline) {
@@ -506,6 +541,7 @@
                 warningDiv.style.display = 'none';
             } else {
                 const deadline = new Date(gameData.votingDeadline);
+                console.log('Deadline date object:', deadline);
                 const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
                 const dateStr = deadline.toLocaleDateString('en-US', options);
                 
@@ -534,10 +570,19 @@
                 alert('Please select a deadline date');
                 return;
             }
+            
+            console.log('Setting deadline to:', deadline);
             gameData.votingDeadline = deadline;
-            await saveData();
-            updateVotingStatus();
-            alert('Voting deadline set successfully!');
+            
+            try {
+                await saveData();
+                console.log('Data saved, votingDeadline is now:', gameData.votingDeadline);
+                updateVotingStatus();
+                alert('Voting deadline set successfully!');
+            } catch (error) {
+                console.error('Failed to save deadline:', error);
+                alert('Failed to save deadline. Please try again.');
+            }
         }
 
         // Add a game
