@@ -390,6 +390,9 @@
     </div>
 
     <script>
+        // Google Sheets API endpoint
+        const SHEETS_API_URL = 'https://script.google.com/macros/s/AKfycbxgHEzu3nPSeGfYFPUwZT38CgTG3kHJBEcPvVxfKhKucx-pe1rVDos8dJkq9F7oA2Su/exec';
+
         // Initialize data structure
         let gameData = {
             games: [],
@@ -401,39 +404,40 @@
 
         let isAdminLoggedIn = false;
 
-        // Load data on startup
+        // Load data from Google Sheets
         async function loadData() {
             try {
-                let result = null;
+                const response = await fetch(SHEETS_API_URL + '?action=getData');
+                const result = await response.json();
                 
-                // Try window.storage first
-                if (window.storage && window.storage.get) {
-                    result = await window.storage.get('boardgame-data');
-                    console.log('Loaded from window.storage');
-                }
-                
-                // Fallback to localStorage
-                if (!result || !result.value) {
-                    const localData = localStorage.getItem('boardgame-data');
-                    if (localData) {
-                        result = { value: localData };
-                        console.log('Loaded from localStorage');
-                    }
-                }
-                
-                if (result && result.value) {
-                    gameData = JSON.parse(result.value);
-                }
-                
-                // Set default password if none exists
-                if (!gameData.adminPassword) {
-                    gameData.adminPassword = 'admin123'; // Default password
-                    await saveData();
+                if (result.success && result.data) {
+                    // Convert votes back to proper format
+                    const votes = (result.data.votes || []).map(vote => ({
+                        voterName: vote.voterName,
+                        choices: [
+                            parseInt(vote.choice1),
+                            parseInt(vote.choice2),
+                            parseInt(vote.choice3)
+                        ]
+                    }));
+                    
+                    gameData = {
+                        games: result.data.games || [],
+                        votes: votes,
+                        history: result.data.history || [],
+                        votingDeadline: result.data.settings.votingDeadline || null,
+                        adminPassword: result.data.settings.adminPassword || 'admin123'
+                    };
+                    
+                    console.log('Data loaded from Google Sheets:', gameData);
+                } else {
+                    console.error('Failed to load data:', result);
+                    gameData.adminPassword = 'admin123';
                 }
             } catch (error) {
-                console.log('No existing data found, starting fresh', error);
-                gameData.adminPassword = 'admin123'; // Default password
-                await saveData();
+                console.error('Error loading data:', error);
+                alert('Error connecting to Google Sheets. Please check your internet connection.');
+                gameData.adminPassword = 'admin123';
             }
             updateAllDisplays();
         }
@@ -487,29 +491,65 @@
             alert('Admin password updated successfully!');
         }
 
-        // Save data
+        // Save data to Google Sheets
         async function saveData() {
             try {
-                // Try using window.storage first (Claude's persistent storage)
-                if (window.storage && window.storage.set) {
-                    await window.storage.set('boardgame-data', JSON.stringify(gameData));
-                    console.log('Data saved to window.storage');
-                } else {
-                    // Fallback to localStorage
-                    localStorage.setItem('boardgame-data', JSON.stringify(gameData));
-                    console.log('Data saved to localStorage (fallback)');
-                }
+                // Save games
+                const gamesResponse = await fetch(SHEETS_API_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: new URLSearchParams({
+                        action: 'saveGames',
+                        data: JSON.stringify(gameData.games)
+                    })
+                });
+                
+                // Save votes
+                const votesResponse = await fetch(SHEETS_API_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: new URLSearchParams({
+                        action: 'saveVotes',
+                        data: JSON.stringify(gameData.votes)
+                    })
+                });
+                
+                // Save history
+                const historyResponse = await fetch(SHEETS_API_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: new URLSearchParams({
+                        action: 'saveHistory',
+                        data: JSON.stringify(gameData.history)
+                    })
+                });
+                
+                // Save settings
+                const settingsResponse = await fetch(SHEETS_API_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: new URLSearchParams({
+                        action: 'saveSettings',
+                        data: JSON.stringify({
+                            votingDeadline: gameData.votingDeadline,
+                            adminPassword: gameData.adminPassword
+                        })
+                    })
+                });
+                
+                console.log('Data saved to Google Sheets');
             } catch (error) {
                 console.error('Error saving data:', error);
-                // Try localStorage as final fallback
-                try {
-                    localStorage.setItem('boardgame-data', JSON.stringify(gameData));
-                    console.log('Saved to localStorage after error');
-                } catch (e) {
-                    console.error('localStorage also failed:', e);
-                    alert('Error saving data. Please try again.');
-                    throw error;
-                }
+                alert('Error saving data to Google Sheets. Please try again.');
+                throw error;
             }
         }
 
@@ -983,6 +1023,13 @@
         // Initialize on load
         window.addEventListener('load', () => {
             loadData();
+            
+            // Auto-refresh data every 10 seconds to stay in sync
+            setInterval(async () => {
+                if (!isAdminLoggedIn) { // Don't refresh while admin is making changes
+                    await loadData();
+                }
+            }, 10000);
         });
     </script>
 </body>
