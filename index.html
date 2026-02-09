@@ -522,7 +522,7 @@
             displayGames();
         }
 
-        // Change admin password
+        // Change admin password (optimistic update)
         async function changeAdminPassword() {
             const newPassword = document.getElementById('newAdminPassword').value.trim();
             
@@ -537,70 +537,42 @@
             }
             
             gameData.adminPassword = newPassword;
-            await saveData();
             document.getElementById('newAdminPassword').value = '';
             alert('Admin password updated successfully!');
+            
+            // Save in background (don't await)
+            saveData();
         }
 
-        // Save data to Google Sheets
+        // Save data to Google Sheets (batched - single API call)
         async function saveData() {
             try {
-                // Save games
-                const gamesResponse = await fetch(SHEETS_API_URL, {
+                const response = await fetch(SHEETS_API_URL, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/x-www-form-urlencoded',
                     },
                     body: new URLSearchParams({
-                        action: 'saveGames',
-                        data: JSON.stringify(gameData.games)
-                    })
-                });
-                
-                // Save votes
-                const votesResponse = await fetch(SHEETS_API_URL, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/x-www-form-urlencoded',
-                    },
-                    body: new URLSearchParams({
-                        action: 'saveVotes',
-                        data: JSON.stringify(gameData.votes)
-                    })
-                });
-                
-                // Save history
-                const historyResponse = await fetch(SHEETS_API_URL, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/x-www-form-urlencoded',
-                    },
-                    body: new URLSearchParams({
-                        action: 'saveHistory',
-                        data: JSON.stringify(gameData.history)
-                    })
-                });
-                
-                // Save settings
-                const settingsResponse = await fetch(SHEETS_API_URL, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/x-www-form-urlencoded',
-                    },
-                    body: new URLSearchParams({
-                        action: 'saveSettings',
-                        data: JSON.stringify({
+                        action: 'saveAll',
+                        games: JSON.stringify(gameData.games),
+                        votes: JSON.stringify(gameData.votes),
+                        history: JSON.stringify(gameData.history),
+                        settings: JSON.stringify({
                             votingDeadline: gameData.votingDeadline,
                             adminPassword: gameData.adminPassword
                         })
                     })
                 });
                 
+                const result = await response.json();
+                if (!result.success) {
+                    console.error('Save failed:', result);
+                }
+                
                 console.log('Data saved to Google Sheets');
             } catch (error) {
                 console.error('Error saving data:', error);
-                alert('Error saving data to Google Sheets. Please try again.');
-                throw error;
+                // Don't show alert - save happens in background now
             }
         }
 
@@ -649,7 +621,7 @@
             }
         }
 
-        // Save voting deadline
+        // Save voting deadline (optimistic update)
         async function saveVotingDeadline() {
             if (!isAdminLoggedIn) {
                 alert('Admin access required');
@@ -665,18 +637,17 @@
             console.log('Setting deadline to:', deadline);
             gameData.votingDeadline = deadline;
             
-            try {
-                await saveData();
-                console.log('Data saved, votingDeadline is now:', gameData.votingDeadline);
-                updateVotingStatus();
-                alert('Voting deadline set successfully!');
-            } catch (error) {
+            // Optimistic update - refresh UI immediately
+            updateVotingStatus();
+            alert('Voting deadline set successfully!');
+            
+            // Save in background (don't await)
+            saveData().catch(error => {
                 console.error('Failed to save deadline:', error);
-                alert('Failed to save deadline. Please try again.');
-            }
+            });
         }
 
-        // Add a game
+        // Add a game (optimistic update)
         async function addGame() {
             const ownerName = document.getElementById('ownerName').value.trim();
             const gameName = document.getElementById('gameName').value.trim();
@@ -701,7 +672,6 @@
                 // Add owner to existing game
                 if (!existingGame.owners.find(o => o.name.toLowerCase() === ownerName.toLowerCase())) {
                     existingGame.owners.push({ name: ownerName, canTeach: canTeach });
-                    alert(`Added ${ownerName} as an owner of ${gameName}`);
                 } else {
                     alert(`${ownerName} is already listed as an owner of ${gameName}`);
                     return;
@@ -725,11 +695,14 @@
             document.getElementById('maxPlayers').value = '4';
             document.getElementById('canTeach').checked = false;
 
-            await saveData();
+            // Optimistic update - refresh UI immediately
             updateAllDisplays();
+            
+            // Save in background (don't await)
+            saveData();
         }
 
-        // Delete a game (admin only)
+        // Delete a game (admin only, optimistic update)
         async function deleteGame(gameId) {
             if (!isAdminLoggedIn) {
                 alert('Admin access required');
@@ -762,8 +735,11 @@
                 };
             }).filter(vote => vote.choices.some(c => c !== null)); // Remove votes with no valid choices
 
-            await saveData();
+            // Optimistic update - refresh UI immediately
             updateAllDisplays();
+            
+            // Save in background (don't await)
+            saveData();
         }
 
         // Display games list
@@ -836,7 +812,7 @@
             winnerSelect.value = currentWinnerValue;
         }
 
-        // Submit vote
+        // Submit vote (optimistic update)
         async function submitVote() {
             if (!isVotingOpen()) {
                 alert('Voting is currently closed!');
@@ -884,9 +860,12 @@
             document.getElementById('choice2').value = '';
             document.getElementById('choice3').value = '';
 
-            await saveData();
+            // Optimistic update - refresh UI immediately
             updateAllDisplays();
             alert('Vote submitted successfully!');
+            
+            // Save in background (don't await)
+            saveData();
         }
 
         // Calculate top games with spillover
@@ -1009,7 +988,7 @@
             }).join('');
         }
 
-        // Record winner
+        // Record winner (optimistic update)
         async function recordWinner() {
             if (!isAdminLoggedIn) {
                 alert('Admin access required');
@@ -1045,9 +1024,12 @@
             document.getElementById('winnerName').value = '';
             document.getElementById('winnerDate').value = '';
 
-            await saveData();
+            // Optimistic update - refresh UI immediately
             displayHistory();
             alert('Winner recorded successfully!');
+            
+            // Save in background (don't await)
+            saveData();
         }
 
         // Display history
@@ -1083,7 +1065,7 @@
             }).join('');
         }
 
-        // Reset for new week
+        // Reset for new week (optimistic update)
         async function resetForNewWeek() {
             if (!isAdminLoggedIn) {
                 alert('Admin access required');
@@ -1098,9 +1080,12 @@
             gameData.votes = [];
             gameData.votingDeadline = null;
 
-            await saveData();
+            // Optimistic update - refresh UI immediately
             updateAllDisplays();
             alert('Reset complete! Ready for a new week.');
+            
+            // Save in background (don't await)
+            saveData();
         }
 
         // Update all displays
