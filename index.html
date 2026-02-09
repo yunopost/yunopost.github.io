@@ -265,13 +265,31 @@
         <!-- Admin Controls -->
         <div class="section">
             <h2>⚙️ Admin Controls</h2>
-            <div class="admin-controls">
+            <div id="adminLogin" style="display: block;">
                 <div class="form-group">
-                    <label for="votingDeadline">Voting Deadline:</label>
-                    <input type="date" id="votingDeadline">
+                    <label for="adminPassword">Admin Password:</label>
+                    <input type="password" id="adminPassword" placeholder="Enter admin password">
                 </div>
-                <button onclick="saveVotingDeadline()">Set Voting Deadline</button>
-                <button class="danger" onclick="resetForNewWeek()">Reset for New Week</button>
+                <button onclick="adminLogin()">Login as Admin</button>
+            </div>
+            <div id="adminPanel" style="display: none;">
+                <div style="background: #d4edda; padding: 10px; border-radius: 6px; margin-bottom: 15px; color: #155724;">
+                    ✓ Logged in as Admin
+                    <button onclick="adminLogout()" class="secondary" style="float: right; padding: 6px 12px;">Logout</button>
+                </div>
+                <div class="admin-controls">
+                    <div class="form-group">
+                        <label for="votingDeadline">Voting Deadline:</label>
+                        <input type="date" id="votingDeadline">
+                    </div>
+                    <button onclick="saveVotingDeadline()">Set Voting Deadline</button>
+                    <button class="danger" onclick="resetForNewWeek()">Reset for New Week</button>
+                    <div class="form-group" style="margin-top: 20px;">
+                        <label for="newAdminPassword">Change Admin Password:</label>
+                        <input type="password" id="newAdminPassword" placeholder="Enter new password">
+                        <button onclick="changeAdminPassword()" style="margin-top: 10px;">Update Password</button>
+                    </div>
+                </div>
             </div>
             <div id="votingStatus" class="voting-status"></div>
         </div>
@@ -348,7 +366,7 @@
         <!-- History -->
         <div class="section">
             <h2>📜 Game Night History</h2>
-            <div class="winner-section">
+            <div id="winnerRecordingSection" class="winner-section" style="display: none;">
                 <h3>Record Winner for Current Week</h3>
                 <div class="form-group">
                     <label for="winnerGame">Select Game:</label>
@@ -377,8 +395,11 @@
             games: [],
             votes: [],
             history: [],
-            votingDeadline: null
+            votingDeadline: null,
+            adminPassword: null
         };
+
+        let isAdminLoggedIn = false;
 
         // Load data on startup
         async function loadData() {
@@ -387,10 +408,67 @@
                 if (result && result.value) {
                     gameData = JSON.parse(result.value);
                 }
+                
+                // Set default password if none exists
+                if (!gameData.adminPassword) {
+                    gameData.adminPassword = 'admin123'; // Default password
+                    await saveData();
+                }
             } catch (error) {
                 console.log('No existing data found, starting fresh');
+                gameData.adminPassword = 'admin123'; // Default password
+                await saveData();
             }
             updateAllDisplays();
+        }
+
+        // Admin login
+        function adminLogin() {
+            const password = document.getElementById('adminPassword').value;
+            
+            if (password === gameData.adminPassword) {
+                isAdminLoggedIn = true;
+                document.getElementById('adminLogin').style.display = 'none';
+                document.getElementById('adminPanel').style.display = 'block';
+                document.getElementById('winnerRecordingSection').style.display = 'block';
+                document.getElementById('adminPassword').value = '';
+                
+                // Show a notice about changing the default password
+                if (gameData.adminPassword === 'admin123') {
+                    alert('⚠️ You are using the default password "admin123". Please change it below for security!');
+                }
+            } else {
+                alert('Incorrect password');
+                document.getElementById('adminPassword').value = '';
+            }
+        }
+
+        // Admin logout
+        function adminLogout() {
+            isAdminLoggedIn = false;
+            document.getElementById('adminLogin').style.display = 'block';
+            document.getElementById('adminPanel').style.display = 'none';
+            document.getElementById('winnerRecordingSection').style.display = 'none';
+        }
+
+        // Change admin password
+        async function changeAdminPassword() {
+            const newPassword = document.getElementById('newAdminPassword').value.trim();
+            
+            if (!newPassword) {
+                alert('Please enter a new password');
+                return;
+            }
+            
+            if (newPassword.length < 6) {
+                alert('Password must be at least 6 characters long');
+                return;
+            }
+            
+            gameData.adminPassword = newPassword;
+            await saveData();
+            document.getElementById('newAdminPassword').value = '';
+            alert('Admin password updated successfully!');
         }
 
         // Save data
@@ -415,6 +493,12 @@
         function updateVotingStatus() {
             const statusDiv = document.getElementById('votingStatus');
             const warningDiv = document.getElementById('votingWarning');
+            const deadlineInput = document.getElementById('votingDeadline');
+            
+            // Update the input field with current deadline
+            if (gameData.votingDeadline) {
+                deadlineInput.value = gameData.votingDeadline;
+            }
             
             if (!gameData.votingDeadline) {
                 statusDiv.className = 'voting-status voting-open';
@@ -439,20 +523,25 @@
         }
 
         // Save voting deadline
-        function saveVotingDeadline() {
+        async function saveVotingDeadline() {
+            if (!isAdminLoggedIn) {
+                alert('Admin access required');
+                return;
+            }
+            
             const deadline = document.getElementById('votingDeadline').value;
             if (!deadline) {
                 alert('Please select a deadline date');
                 return;
             }
             gameData.votingDeadline = deadline;
-            saveData();
+            await saveData();
             updateVotingStatus();
             alert('Voting deadline set successfully!');
         }
 
         // Add a game
-        function addGame() {
+        async function addGame() {
             const ownerName = document.getElementById('ownerName').value.trim();
             const gameName = document.getElementById('gameName').value.trim();
             const minPlayers = parseInt(document.getElementById('minPlayers').value);
@@ -500,7 +589,7 @@
             document.getElementById('maxPlayers').value = '4';
             document.getElementById('canTeach').checked = false;
 
-            saveData();
+            await saveData();
             updateAllDisplays();
         }
 
@@ -567,7 +656,7 @@
         }
 
         // Submit vote
-        function submitVote() {
+        async function submitVote() {
             if (!isVotingOpen()) {
                 alert('Voting is currently closed!');
                 return;
@@ -614,7 +703,7 @@
             document.getElementById('choice2').value = '';
             document.getElementById('choice3').value = '';
 
-            saveData();
+            await saveData();
             updateAllDisplays();
             alert('Vote submitted successfully!');
         }
@@ -740,7 +829,12 @@
         }
 
         // Record winner
-        function recordWinner() {
+        async function recordWinner() {
+            if (!isAdminLoggedIn) {
+                alert('Admin access required');
+                return;
+            }
+            
             const gameId = document.getElementById('winnerGame').value;
             const winnerName = document.getElementById('winnerName').value.trim();
             const winnerDate = document.getElementById('winnerDate').value;
@@ -770,7 +864,7 @@
             document.getElementById('winnerName').value = '';
             document.getElementById('winnerDate').value = '';
 
-            saveData();
+            await saveData();
             displayHistory();
             alert('Winner recorded successfully!');
         }
@@ -809,7 +903,12 @@
         }
 
         // Reset for new week
-        function resetForNewWeek() {
+        async function resetForNewWeek() {
+            if (!isAdminLoggedIn) {
+                alert('Admin access required');
+                return;
+            }
+            
             if (!confirm('This will clear all games and votes for the new week. History will be preserved. Continue?')) {
                 return;
             }
@@ -818,7 +917,7 @@
             gameData.votes = [];
             gameData.votingDeadline = null;
 
-            saveData();
+            await saveData();
             updateAllDisplays();
             alert('Reset complete! Ready for a new week.');
         }
