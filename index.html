@@ -1489,33 +1489,6 @@
                 return String(name || '').trim().toLowerCase();
             }
 
-            function stableHash(str) {
-                // Simple deterministic hash (djb2)
-                let h = 5381;
-                for (let i = 0; i < str.length; i++) {
-                    h = ((h << 5) + h) + str.charCodeAt(i);
-                    h = h >>> 0; // unsigned
-                }
-                return h;
-            }
-
-            function deterministicSortApplicants(applicants, gameId, seed) {
-                // Stable tie-breaker: sort by hash(seed + voterKey + gameId)
-                const s = String(seed || '');
-                return applicants.sort((a, b) => {
-                    const ha = stableHash(`${s}|${gameId}|${a.key}`);
-                    const hb = stableHash(`${s}|${gameId}|${b.key}`);
-                    if (ha !== hb) return ha - hb;
-                    return a.key.localeCompare(b.key);
-                });
-            }
-
-            function playerCountTarget(totalPlayers) {
-                if (totalPlayers <= 6) return 1;
-                if (totalPlayers <= 10) return 2;
-                return 3;
-            }
-
             // Build unique voter list
             const voters = [];
             const seen = new Set();
@@ -1532,10 +1505,144 @@
                 return [];
             }
 
-            // Score games (used only for candidate pool ordering + display)
+            // Track assignments
+            const selectedGames = [];
+            const assignedPlayers = new Set(); // normalized names
+            const assignmentDetails = {}; // gameId -> [{name, rank}]
+            const spilloverByGame = {}; // gameId -> [overflow messages]
+            const seatNotes = {}; // normalized name -> note
+
+            // Handle manual assignments first
+            const manual = (gameData.manualAssignments && typeof gameData.manualAssignments === 'object')
+                ? gameData.manualAssignments
+                : {};
+
+            if (Object.keys(manual).length > 0) {
+                for (const voter of voters) {
+                    const forcedGameId = manual[voter.key];
+
+                    if (forcedGameId === -1) {
+                        seatNotes[voter.key] = 'Admin marked as unassigned';
+                        continue;
+                    }
+
+                    if (forcedGameId) {
+                        const game = gameData.games.find(g => g.id === forcedGameId);
+                        if (game) {
+                            if (!assignmentDetails[forcedGameId]) {
+                                assignmentDetails[forcedGameId] = [];
+                                spilloverByGame[forcedGameId] = [];
+                            }
+                            
+                            const currentCount = assignmentDetails[forcedGameId].length;
+                            if (currentCount < (game.maxPlayers || 999)) {
+                                assignmentDetails[forcedGameId].push({ name: voter.name, rank: 0 });
+                                assignedPlayers.add(voter.key);
+                                
+                                // Add to selectedGames if not already there
+                                if (!selectedGames.find(g => g.id === forcedGameId)) {
+                                    selectedGames.push(game);
+                                }
+                            } else {
+                                seatNotes[voter.key] = `Admin assigned to ${game.name}, but it was full`;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Process rounds: 1st choice, 2nd choice, 3rd choice
+            for (let rank = 0; rank < 3; rank++) {
+                // Count how many unassigned people want each game at this rank
+                const wantsByGame = {};
+                
+                for (const voter of voters) {
+                    if (assignedPlayers.has(voter.key)) continue; // already assigned
+                    
+                    const gameId = voter.choices[rank];
+                    if (!gameId) continue;
+                    
+                    if (!wantsByGame[gameId]) {
+                        wantsByGame[gameId] = [];
+                    }
+                    wantsByGame[gameId].push(voter);
+                }
+
+                // Sort games by popularity at this rank (most wanted first)
+                const gamesByPopularity = Object.entries(wantsByGame)
+                    .sort((a, b) => b[1].length - a[1].length)
+                    .map(([gameId, voters]) => ({
+                        gameId: parseInt(gameId),
+                        voters: voters
+                    }));
+
+                // Try to seat people at each game
+                for (const { gameId, voters: applicants } of gamesByPopularity) {
+                    const game = gameData.games.find(g => g.id === gameId);
+                    if (!game) continue;
+
+                    // Initialize if needed
+                    if (!assignmentDetails[gameId]) {
+                        assignmentDetails[gameId] = [];
+                        spilloverByGame[gameId] = [];
+                    }
+
+                    const currentCount = assignmentDetails[gameId].length;
+                    const seatsAvailable = Math.max(0, (game.maxPlayers || 999) - currentCount);
+
+                    // Deterministic sorting for fairness (using game night date as seed)
+                    const seed = gameData.gameNightDate || gameData.votingDeadline || '';
+                    const sortedApplicants = applicants.sort((a, b) => {
+                        // Simple hash for deterministic randomness
+                        const hashA = simpleHash(`${seed}|${gameId}|${a.key}`);
+                        const hashB = simpleHash(`${seed}|${gameId}|${b.key}`);
+                        if (hashA !== hashB) return hashA - hashB;
+                        return a.key.localeCompare(b.key);
+                    });
+
+                    // Assign as many as possible
+                    const winners = sortedApplicants.slice(0, seatsAvailable);
+                    const losers = sortedApplicants.slice(seatsAvailable);
+
+                    for (const winner of winners) {
+                        assignmentDetails[gameId].push({ name: winner.name, rank: rank + 1 });
+                        assignedPlayers.add(winner.key);
+                    }
+
+                    // Track spillover
+                    for (const loser of losers) {
+                        spilloverByGame[gameId].push(`${loser.name} (wanted as choice #${rank + 1}, moved to alternate)`);
+                    }
+
+                    // Add game to selected list if it meets minimum and not already added
+                    const totalAssigned = assignmentDetails[gameId].length;
+                    if (totalAssigned >= (game.minPlayers || 0) && 
+                        !selectedGames.find(g => g.id === gameId)) {
+                        selectedGames.push(game);
+                    }
+                }
+            }
+
+            // Helper function for deterministic hashing
+            function simpleHash(str) {
+                let h = 5381;
+                for (let i = 0; i < str.length; i++) {
+                    h = ((h << 5) + h) + str.charCodeAt(i);
+                    h = h >>> 0;
+                }
+                return h;
+            }
+
+            // Build unassigned list
+            const unassigned = voters
+                .filter(v => !assignedPlayers.has(v.key))
+                .map(v => v.name);
+
+            lastSeatingState = { unassigned, seatNotes };
+
+            // Calculate scores for display (3-2-1 point system)
             const scoreByGame = {};
             for (const g of gameData.games) scoreByGame[g.id] = 0;
-
             for (const v of voters) {
                 for (let i = 0; i < 3; i++) {
                     const gameId = v.choices[i];
@@ -1545,302 +1652,25 @@
                 }
             }
 
-            const scoredGames = gameData.games
-                .map(g => ({ game: g, score: scoreByGame[g.id] || 0 }))
-                .filter(x => x.score > 0)
-                .sort((a, b) => b.score - a.score);
-
-            if (scoredGames.length === 0) {
-                lastSeatingState = { unassigned: voters.map(v => v.name), seatNotes: {} };
-                return [];
-            }
-
-            const seatSeed = gameData.gameNightDate || gameData.votingDeadline || '';
-
-            // OPTIMIZATION: Cap candidate pool at 6 games to avoid evaluating too many combinations
-            // With 6 games: C(6,1) + C(6,2) + C(6,3) = 6 + 15 + 20 = 41 combinations
-            // With 10 games: C(10,1) + C(10,2) + C(10,3) = 10 + 45 + 120 = 175 combinations
-            const CANDIDATE_POOL = Math.min(6, scoredGames.length);
-            const candidatePoolIds = scoredGames.slice(0, CANDIDATE_POOL).map(x => x.game.id);
-
-            function runSeating(activeIds) {
-                const activeSet = new Set(activeIds);
-
-                const assignedByGame = {};
-                const spillWantedByGame = {};
-                const seatNotes = {}; // voterKey -> note
-                for (const id of activeIds) {
-                    assignedByGame[id] = [];
-                    spillWantedByGame[id] = [];
-                }
-
-                const assignedGameByVoter = new Map();
-
-                let unassigned = voters.map(v => ({
-                    ...v,
-                    choices: v.choices.filter(id => activeSet.has(id))
-                }));
-
-                // Manual assignments first
-                const manual = (gameData.manualAssignments && typeof gameData.manualAssignments === 'object')
-                    ? gameData.manualAssignments
-                    : {};
-
-                if (Object.keys(manual).length > 0) {
-                    const stillUnassigned = [];
-                    for (const v of unassigned) {
-                        const forcedGameId = manual[v.key];
-
-                        if (forcedGameId === -1) {
-                            seatNotes[v.key] = 'Admin marked as unassigned';
-                            stillUnassigned.push(v);
-                            continue;
-                        }
-
-                        if (forcedGameId && activeSet.has(forcedGameId)) {
-                            const game = gameData.games.find(g => g.id === forcedGameId);
-                            const seatsLeft = game ? Math.max(0, (game.maxPlayers || 0) - assignedByGame[forcedGameId].length) : 0;
-                            if (seatsLeft > 0) {
-                                assignedByGame[forcedGameId].push({ name: v.name, rank: 0 }); // 0 = admin assigned
-                                assignedGameByVoter.set(v.key, forcedGameId);
-                            } else {
-                                seatNotes[v.key] = `Admin assigned to ${game ? game.name : 'a game'}, but it was full`;
-                                stillUnassigned.push(v);
-                            }
-                        } else {
-                            stillUnassigned.push(v);
-                        }
-                    }
-                    unassigned = stillUnassigned;
-                }
-
-                // Rank rounds: 1st, 2nd, 3rd
-                for (let rank = 0; rank < 3; rank++) {
-                    const applicantsByGame = {};
-                    for (const id of activeIds) applicantsByGame[id] = [];
-
-                    const stillUnassigned = [];
-                    for (const v of unassigned) {
-                        const desired = v.choices[rank];
-                        if (desired != null && activeSet.has(desired)) {
-                            applicantsByGame[desired].push(v);
-                        } else {
-                            stillUnassigned.push(v);
-                        }
-                    }
-
-                    for (const id of activeIds) {
-                        const game = gameData.games.find(g => g.id === id);
-                        if (!game) continue;
-
-                        const applicants = applicantsByGame[id];
-                        if (!applicants || applicants.length === 0) continue;
-
-                        deterministicSortApplicants(applicants, id, seatSeed);
-
-                        const seatsLeft = Math.max(0, (game.maxPlayers || 0) - assignedByGame[id].length);
-                        const winners = applicants.slice(0, seatsLeft);
-                        const losers = applicants.slice(seatsLeft);
-
-                        for (const w of winners) {
-                            assignedByGame[id].push({ name: w.name, rank: rank + 1 });
-                            assignedGameByVoter.set(w.key, id);
-                        }
-
-                        for (const l of losers) {
-                            spillWantedByGame[id].push({ name: l.name, wantedRank: rank + 1, voterKey: l.key });
-                            stillUnassigned.push(l);
-                        }
-                    }
-
-                    unassigned = stillUnassigned;
-                }
-
-                return { assignedByGame, unassigned, spillWantedByGame, assignedGameByVoter, seatNotes };
-            }
-
-            function validateSeating(activeIds, seating) {
-                // Hard reject only truly empty tables; treat minPlayers as a soft constraint (scored later).
-                for (const id of activeIds) {
-                    const assignedCount = seating.assignedByGame[id]?.length || 0;
-                    if (assignedCount === 0) return false;
-                }
-                return true;
-            }
-
-            function outcomeMetrics(activeIds, seating) {
-                let totalAssigned = 0;
-                let first = 0, second = 0, third = 0, manual = 0;
-                let belowMin = 0;
-
-                for (const id of activeIds) {
-                    const game = gameData.games.find(g => g.id === id);
-                    const rows = seating.assignedByGame[id] || [];
-                    totalAssigned += rows.length;
-
-                    const minP = game?.minPlayers || 0;
-                    if (minP > 0 && rows.length > 0 && rows.length < minP) belowMin++;
-
-                    for (const r of rows) {
-                        if (r.rank === 0) manual++;
-                        else if (r.rank === 1) first++;
-                        else if (r.rank === 2) second++;
-                        else if (r.rank === 3) third++;
-                    }
-                }
-
-                const unassignedCount = seating.unassigned.length;
-
-                return { 
-                    totalAssigned, first, second, third, manual, 
-                    unassignedCount,
-                    belowMin,
-                    gameCount: activeIds.length
-                };
-            }
-
-            function betterOutcome(a, b) {
-                if (!b) return true;
-
-                // Early win: everyone seated + everyone gets 1st or 2nd choice = perfect outcome
-                const aPerfect = (a.unassignedCount === 0 && a.first + a.second === a.totalAssigned);
-                const bPerfect = (b.unassignedCount === 0 && b.first + b.second === b.totalAssigned);
-                
-                if (aPerfect && !bPerfect) return true;
-                if (!aPerfect && bPerfect) return false;
-
-                // 1) Primary: minimize unassigned (seat everyone if possible)
-                if (a.unassignedCount !== b.unassignedCount) return a.unassignedCount < b.unassignedCount;
-
-                // 2) Maximize 1st choices - prioritize first choice satisfaction
-                if (a.first !== b.first) return a.first > b.first;
-
-                // 3) Maximize 2nd choices
-                if (a.second !== b.second) return a.second > b.second;
-
-                // 4) Prefer fewer tables when outcomes are otherwise similar
-                if (a.gameCount !== b.gameCount) return a.gameCount < b.gameCount;
-
-                // 5) Prefer meeting minPlayers when possible (soft)
-                if (a.belowMin !== b.belowMin) return a.belowMin < b.belowMin;
-
-                // 6) Minimize 3rd-choice assignments
-                if (a.third !== b.third) return a.third < b.third;
-
-                // 7) Tie-break: maximize seated people
-                if (a.totalAssigned !== b.totalAssigned) return a.totalAssigned > b.totalAssigned;
-
-                return false;
-            }
-
-            function combinations(arr, k) {
-                const out = [];
-                function rec(start, chosen) {
-                    if (chosen.length === k) {
-                        out.push(chosen.slice());
-                        return;
-                    }
-                    for (let i = start; i < arr.length; i++) {
-                        chosen.push(arr[i]);
-                        rec(i + 1, chosen);
-                        chosen.pop();
-                    }
-                }
-                rec(0, []);
-                return out;
-            }
-
-            const maxK = Math.min(3, candidatePoolIds.length);
-            let best = null;
-
-            // Try 1..maxK games and pick the best overall seating outcome.
-            for (let k = 1; k <= maxK; k++) {
-                const subsets = combinations(candidatePoolIds, k);
-                for (const subsetIds of subsets) {
-                    const seating = runSeating(subsetIds);
-                    if (!validateSeating(subsetIds, seating)) continue;
-
-                    const metrics = outcomeMetrics(subsetIds, seating);
-                    
-                    if (betterOutcome(metrics, best?.metrics)) {
-                        best = { ids: subsetIds, seating, metrics };
-                        
-                        // Early termination: if we found a perfect outcome, stop searching
-                        const isPerfect = (metrics.unassignedCount === 0 && 
-                                         metrics.first + metrics.second === metrics.totalAssigned);
-                        if (isPerfect) {
-                            console.log('Found perfect outcome, stopping search early');
-                            break;
-                        }
-                    }
-                }
-                
-                // If we found a perfect outcome in this k-value, no need to try larger k
-                if (best && best.metrics.unassignedCount === 0 && 
-                    best.metrics.first + best.metrics.second === best.metrics.totalAssigned) {
-                    console.log('Perfect outcome found, stopping all searches');
-                    break;
-                }
-            }
-
-            // Fallback if no valid subset (rare): just pick top scored game(s)
-            if (!best) {
-                const fallbackIds = candidatePoolIds.slice(0, 1);
-                const seating = runSeating(fallbackIds);
-                best = { ids: fallbackIds, seating, metrics: outcomeMetrics(fallbackIds, seating) };
-            }
-
-            const chosenIds = best.ids;
-            const chosenSeating = best.seating;
-
-            lastSeatingState = {
-                unassigned: chosenSeating.unassigned.map(v => v.name),
-                seatNotes: chosenSeating.seatNotes || {}
-            };
-
-            function gameNameById(id) {
-                const g = gameData.games.find(x => x.id === id);
-                return g ? g.name : 'another game';
-            }
-
-            const overflowByGame = {};
-            for (const id of chosenIds) overflowByGame[id] = [];
-
-            for (const id of chosenIds) {
-                const wanted = chosenSeating.spillWantedByGame[id] || [];
-                const seenSpill = new Set();
-
-                for (const w of wanted) {
-                    const k = normalizeName(w.name);
-                    if (seenSpill.has(k)) continue;
-                    seenSpill.add(k);
-
-                    const assignedId = chosenSeating.assignedGameByVoter.get(w.voterKey);
-                    if (assignedId && assignedId !== id) {
-                        overflowByGame[id].push(`${w.name} (moved to ${gameNameById(assignedId)})`);
-                    } else if (!assignedId) {
-                        overflowByGame[id].push(`${w.name} (no available slot)`);
-                    }
-                }
-            }
-
-            const results = chosenIds
-                .map(id => {
-                    const game = gameData.games.find(g => g.id === id);
-                    const assigned = (chosenSeating.assignedByGame[id] || [])
-                        .slice()
+            // Build final results
+            const results = selectedGames
+                .filter(game => {
+                    const assigned = assignmentDetails[game.id] || [];
+                    return assigned.length >= (game.minPlayers || 0);
+                })
+                .map(game => {
+                    const assigned = (assignmentDetails[game.id] || [])
                         .sort((a, b) => (a.rank - b.rank) || a.name.localeCompare(b.name))
                         .map(x => x.name);
 
                     return {
                         game,
-                        score: scoreByGame[id] || 0,
+                        score: scoreByGame[game.id] || 0,
                         voters: [],
                         assignedPlayers: assigned,
-                        overflowPlayers: overflowByGame[id] || []
+                        overflowPlayers: spilloverByGame[game.id] || []
                     };
                 })
-                .filter(r => r.game)
                 .sort((a, b) => b.score - a.score);
 
             return results;
