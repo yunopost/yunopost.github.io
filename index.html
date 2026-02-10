@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Board Game Night Organizer</title>
+    <title>Vermont State Legislative Board Game Night</title>
     <style>
         * {
             margin: 0;
@@ -559,7 +559,7 @@
 </head>
 <body>
     <div class="container">
-        <h1>🎲 Board Game Night Organizer</h1>
+        <h1>🎲 Vermont State Legislative Board Game Night</h1>
         
         <!-- Save Status Indicator -->
         <div id="saveStatus" class="save-status">
@@ -1591,7 +1591,7 @@
                 for (const v of voters) {
                     const firstId = v.choices[0];
                     if (firstId != null && strongFirstChoiceIds.includes(firstId) && !active.has(firstId)) {
-                        penalty += 1; // 1 per harmed voter (tunable)
+                        penalty += 5; // strong penalty per harmed voter (tunable)
                     }
                 }
                 return penalty;
@@ -1736,17 +1736,17 @@
             function betterOutcome(a, b) {
                 if (!b) return true;
 
-                // 1) Primary: minimize unassigned (try to seat everyone)
+                // 1) Primary: minimize unassigned (seat everyone if possible)
                 if (a.unassignedCount !== b.unassignedCount) return a.unassignedCount < b.unassignedCount;
 
-                // 2) Prefer fewer tables when outcomes are otherwise similar
+                // 2) Strong #1 soft protection: avoid excluding strong #1 games (penalize per harmed voter)
+                if (a.firstExclusionPenalty !== b.firstExclusionPenalty) return a.firstExclusionPenalty < b.firstExclusionPenalty;
+
+                // 3) Prefer fewer tables when outcomes are otherwise similar
                 if (a.gameCount !== b.gameCount) return a.gameCount < b.gameCount;
 
-                // 3) Prefer meeting minPlayers when possible (soft)
+                // 4) Prefer meeting minPlayers when possible (soft)
                 if (a.belowMin !== b.belowMin) return a.belowMin < b.belowMin;
-
-                // 4) Soft protection: avoid excluding strong #1 games (penalize per harmed voter)
-                if (a.firstExclusionPenalty !== b.firstExclusionPenalty) return a.firstExclusionPenalty < b.firstExclusionPenalty;
 
                 // 5) Then maximize 1st/2nd choices
                 if (a.first !== b.first) return a.first > b.first;
@@ -1755,7 +1755,7 @@
                 // 6) Finally minimize 3rd-choice assignments
                 if (a.third !== b.third) return a.third < b.third;
 
-                // 7) Tie-break: maximize seated people (usually equal if unassigned equal)
+                // 7) Tie-break: maximize seated people
                 if (a.totalAssigned !== b.totalAssigned) return a.totalAssigned > b.totalAssigned;
 
                 return false;
