@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Vermont State Legislative Staff Board Game Night</title>
+    <title>Board Game Night Organizer</title>
     <style>
         * {
             margin: 0;
@@ -272,6 +272,71 @@
             color: #155724;
         }
         
+        .save-status {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: white;
+            padding: 12px 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            display: none;
+            align-items: center;
+            gap: 10px;
+            z-index: 1000;
+            font-weight: 600;
+            font-size: 14px;
+        }
+        
+        .save-status.saving {
+            display: flex;
+            background: #e3f2fd;
+            color: #1976d2;
+            border: 2px solid #2196f3;
+        }
+        
+        .save-status.success {
+            display: flex;
+            background: #d4edda;
+            color: #155724;
+            border: 2px solid #4caf50;
+        }
+        
+        .save-status.error {
+            display: flex;
+            background: #f8d7da;
+            color: #721c24;
+            border: 2px solid #e74c3c;
+        }
+        
+        .save-status .spinner {
+            width: 16px;
+            height: 16px;
+            border: 3px solid #1976d2;
+            border-top-color: transparent;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        .retry-button {
+            background: #e74c3c;
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        
+        .retry-button:hover {
+            background: #c0392b;
+        }
+        
         .voting-explanation {
             background: #e3f2fd;
             border-left: 4px solid #2196f3;
@@ -494,7 +559,13 @@
 </head>
 <body>
     <div class="container">
-        <h1>🎲 Vermont State Legislative Staff Board Game Night </h1>
+        <h1>🎲 Board Game Night Organizer</h1>
+        
+        <!-- Save Status Indicator -->
+        <div id="saveStatus" class="save-status">
+            <div class="spinner"></div>
+            <span id="saveStatusText">Saving...</span>
+        </div>
         
         <!-- Voting -->
         <div class="section">
@@ -651,12 +722,122 @@
 
         let isAdminLoggedIn = false;
         let selectedVotes = [null, null, null]; // Track 1st, 2nd, 3rd choices
+        let saveQueue = []; // Queue for failed saves
+        let isSaving = false;
 
-        // Load data from Google Sheets
+        // Show save status
+        function showSaveStatus(status, message) {
+            const statusDiv = document.getElementById('saveStatus');
+            const statusText = document.getElementById('saveStatusText');
+            
+            statusDiv.className = `save-status ${status}`;
+            statusText.textContent = message;
+            
+            if (status === 'success') {
+                setTimeout(() => {
+                    statusDiv.className = 'save-status';
+                }, 3000);
+            }
+        }
+
+        // Save data to Google Sheets with retry logic
+        async function saveData(retryCount = 0) {
+            const maxRetries = 3;
+            
+            if (isSaving && retryCount === 0) {
+                // Already saving, add to queue
+                console.log('Save already in progress, queueing...');
+                return;
+            }
+            
+            try {
+                isSaving = true;
+                showSaveStatus('saving', 'Saving...');
+                
+                console.log(`Attempting save (attempt ${retryCount + 1}/${maxRetries + 1})...`);
+                
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+                
+                const response = await fetch(SHEETS_API_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: new URLSearchParams({
+                        action: 'saveAll',
+                        games: JSON.stringify(gameData.games),
+                        votes: JSON.stringify(gameData.votes),
+                        history: JSON.stringify(gameData.history),
+                        settings: JSON.stringify({
+                            votingDeadline: gameData.votingDeadline,
+                            gameNightDate: gameData.gameNightDate,
+                            adminPassword: gameData.adminPassword
+                        })
+                    }),
+                    signal: controller.signal
+                });
+                
+                clearTimeout(timeoutId);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const result = await response.json();
+                
+                if (!result.success) {
+                    throw new Error(result.error || 'Save failed');
+                }
+                
+                console.log('Data saved successfully to Google Sheets');
+                showSaveStatus('success', '✓ Saved');
+                isSaving = false;
+                
+            } catch (error) {
+                console.error('Error saving data:', error);
+                
+                // Retry logic
+                if (retryCount < maxRetries) {
+                    console.log(`Retrying... (${retryCount + 1}/${maxRetries})`);
+                    isSaving = false;
+                    await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds
+                    return saveData(retryCount + 1);
+                } else {
+                    // All retries failed
+                    isSaving = false;
+                    const errorMsg = error.name === 'AbortError' 
+                        ? 'Save timed out. Check your internet connection.' 
+                        : `Save failed: ${error.message}`;
+                    
+                    showSaveStatus('error', errorMsg);
+                    
+                    // Add retry button
+                    const statusDiv = document.getElementById('saveStatus');
+                    const retryBtn = document.createElement('button');
+                    retryBtn.className = 'retry-button';
+                    retryBtn.textContent = 'Retry';
+                    retryBtn.onclick = () => {
+                        statusDiv.querySelector('.retry-button')?.remove();
+                        saveData(0);
+                    };
+                    statusDiv.appendChild(retryBtn);
+                    
+                    alert(`⚠️ Failed to save to Google Sheets after ${maxRetries + 1} attempts.\n\n${errorMsg}\n\nYour changes are still visible to you, but may not be saved. Please check your internet connection and click the "Retry" button in the bottom right.`);
+                }
+            }
+        }
         async function loadData() {
             try {
+                console.log('Loading data from Google Sheets...');
+                console.log('API URL:', SHEETS_API_URL);
+                
                 const response = await fetch(SHEETS_API_URL + '?action=getData');
+                console.log('Response status:', response.status);
+                console.log('Response OK:', response.ok);
+                
                 const result = await response.json();
+                console.log('Result:', result);
                 
                 if (result.success && result.data) {
                     // Convert votes back to proper format
@@ -678,7 +859,7 @@
                         adminPassword: result.data.settings.adminPassword || 'admin123'
                     };
                     
-                    console.log('Data loaded from Google Sheets:', gameData);
+                    console.log('Data loaded successfully. Games:', gameData.games.length);
                 } else {
                     console.error('Failed to load data:', result);
                     gameData.adminPassword = 'admin123';
@@ -687,7 +868,12 @@
                 }
             } catch (error) {
                 console.error('Error loading data:', error);
-                alert('Error connecting to Google Sheets. Please check your internet connection.');
+                console.error('Error details:', {
+                    name: error.name,
+                    message: error.message,
+                    stack: error.stack
+                });
+                alert('⚠️ Error connecting to Google Sheets.\n\nPlease check:\n1. Your internet connection\n2. The Google Apps Script is deployed correctly\n\nOpen your browser console (F12) for details.');
                 gameData.adminPassword = 'admin123';
                 gameData.votingDeadline = getNextTuesday();
                 gameData.gameNightDate = getNextWednesday();
@@ -764,39 +950,6 @@
             
             // Save in background (don't await)
             saveData();
-        }
-
-        // Save data to Google Sheets (batched - single API call)
-        async function saveData() {
-            try {
-                const response = await fetch(SHEETS_API_URL, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/x-www-form-urlencoded',
-                    },
-                    body: new URLSearchParams({
-                        action: 'saveAll',
-                        games: JSON.stringify(gameData.games),
-                        votes: JSON.stringify(gameData.votes),
-                        history: JSON.stringify(gameData.history),
-                        settings: JSON.stringify({
-                            votingDeadline: gameData.votingDeadline,
-                            gameNightDate: gameData.gameNightDate,
-                            adminPassword: gameData.adminPassword
-                        })
-                    })
-                });
-                
-                const result = await response.json();
-                if (!result.success) {
-                    console.error('Save failed:', result);
-                }
-                
-                console.log('Data saved to Google Sheets');
-            } catch (error) {
-                console.error('Error saving data:', error);
-                // Don't show alert - save happens in background now
-            }
         }
 
         // Check if voting is open
@@ -878,71 +1031,90 @@
 
         // Add a game (optimistic update)
         async function addGame() {
-            const ownerName = document.getElementById('ownerName').value.trim();
-            const gameName = document.getElementById('gameName').value.trim();
-            const bggLink = document.getElementById('bggLink').value.trim();
-            const gameLength = document.getElementById('gameLength').value.trim();
-            const minPlayers = parseInt(document.getElementById('minPlayers').value);
-            const maxPlayers = parseInt(document.getElementById('maxPlayers').value);
-            const canTeach = document.getElementById('canTeach').checked;
+            try {
+                console.log('=== ADD GAME STARTED ===');
+                
+                const ownerName = document.getElementById('ownerName').value.trim();
+                const gameName = document.getElementById('gameName').value.trim();
+                const bggLink = document.getElementById('bggLink').value.trim();
+                const gameLength = document.getElementById('gameLength').value.trim();
+                const minPlayers = parseInt(document.getElementById('minPlayers').value);
+                const maxPlayers = parseInt(document.getElementById('maxPlayers').value);
+                const canTeach = document.getElementById('canTeach').checked;
 
-            if (!ownerName || !gameName) {
-                alert('Please enter both your name and game name');
-                return;
-            }
+                console.log('Form values:', { ownerName, gameName, bggLink, gameLength, minPlayers, maxPlayers, canTeach });
 
-            if (minPlayers > maxPlayers) {
-                alert('Min players cannot be greater than max players');
-                return;
-            }
-
-            // Check if game already exists
-            const existingGame = gameData.games.find(g => g.name.toLowerCase() === gameName.toLowerCase());
-            
-            if (existingGame) {
-                // Add owner to existing game
-                if (!existingGame.owners.find(o => o.name.toLowerCase() === ownerName.toLowerCase())) {
-                    existingGame.owners.push({ name: ownerName, canTeach: canTeach });
-                    // Update BGG link if provided and not already set
-                    if (bggLink && !existingGame.bggLink) {
-                        existingGame.bggLink = bggLink;
-                    }
-                    // Update game length if provided and not already set
-                    if (gameLength && !existingGame.gameLength) {
-                        existingGame.gameLength = parseInt(gameLength);
-                    }
-                } else {
-                    alert(`${ownerName} is already listed as an owner of ${gameName}`);
+                if (!ownerName || !gameName) {
+                    alert('Please enter both your name and game name');
                     return;
                 }
-            } else {
-                // Create new game
-                const game = {
-                    id: Date.now(),
-                    name: gameName,
-                    bggLink: bggLink || null,
-                    gameLength: gameLength ? parseInt(gameLength) : null,
-                    owners: [{ name: ownerName, canTeach: canTeach }],
-                    minPlayers: minPlayers,
-                    maxPlayers: maxPlayers
-                };
-                gameData.games.push(game);
+
+                if (minPlayers > maxPlayers) {
+                    alert('Min players cannot be greater than max players');
+                    return;
+                }
+
+                // Check if game already exists
+                const existingGame = gameData.games.find(g => g.name.toLowerCase() === gameName.toLowerCase());
+                
+                if (existingGame) {
+                    console.log('Game exists, adding owner...');
+                    // Add owner to existing game
+                    if (!existingGame.owners.find(o => o.name.toLowerCase() === ownerName.toLowerCase())) {
+                        existingGame.owners.push({ name: ownerName, canTeach: canTeach });
+                        // Update BGG link if provided and not already set
+                        if (bggLink && !existingGame.bggLink) {
+                            existingGame.bggLink = bggLink;
+                        }
+                        // Update game length if provided and not already set
+                        if (gameLength && !existingGame.gameLength) {
+                            existingGame.gameLength = parseInt(gameLength);
+                        }
+                    } else {
+                        alert(`${ownerName} is already listed as an owner of ${gameName}`);
+                        return;
+                    }
+                } else {
+                    console.log('Creating new game...');
+                    // Create new game
+                    const game = {
+                        id: Date.now(),
+                        name: gameName,
+                        bggLink: bggLink || null,
+                        gameLength: gameLength ? parseInt(gameLength) : null,
+                        owners: [{ name: ownerName, canTeach: canTeach }],
+                        minPlayers: minPlayers,
+                        maxPlayers: maxPlayers
+                    };
+                    console.log('New game object:', game);
+                    gameData.games.push(game);
+                }
+
+                // Clear form
+                document.getElementById('ownerName').value = '';
+                document.getElementById('gameName').value = '';
+                document.getElementById('bggLink').value = '';
+                document.getElementById('gameLength').value = '';
+                document.getElementById('minPlayers').value = '2';
+                document.getElementById('maxPlayers').value = '4';
+                document.getElementById('canTeach').checked = false;
+
+                console.log('Form cleared, updating displays...');
+                
+                // Optimistic update - refresh UI immediately
+                updateAllDisplays();
+                
+                console.log('Starting save...');
+                // Save in background (don't await)
+                saveData();
+                
+                console.log('=== ADD GAME COMPLETED ===');
+                
+            } catch (error) {
+                console.error('ERROR IN addGame:', error);
+                console.error('Error stack:', error.stack);
+                alert(`Error adding game: ${error.message}\n\nCheck console for details.`);
             }
-
-            // Clear form
-            document.getElementById('ownerName').value = '';
-            document.getElementById('gameName').value = '';
-            document.getElementById('bggLink').value = '';
-            document.getElementById('gameLength').value = '';
-            document.getElementById('minPlayers').value = '2';
-            document.getElementById('maxPlayers').value = '4';
-            document.getElementById('canTeach').checked = false;
-
-            // Optimistic update - refresh UI immediately
-            updateAllDisplays();
-            
-            // Save in background (don't await)
-            saveData();
         }
 
         // Edit BGG link for a game (admin only)
