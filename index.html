@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Board Game Night Organizer</title>
+    <title>Vermont State Legislative Board Game Night</title>
     <style>
         * {
             margin: 0;
@@ -559,7 +559,7 @@
 </head>
 <body>
     <div class="container">
-        <h1>🎲 Board Game Night Organizer</h1>
+        <h1>🎲 Vermont State Legislative Board Game Night</h1>
         
         <!-- Save Status Indicator -->
         <div id="saveStatus" class="save-status">
@@ -1506,7 +1506,6 @@
                     const ha = stableHash(`${s}|${gameId}|${a.key}`);
                     const hb = stableHash(`${s}|${gameId}|${b.key}`);
                     if (ha !== hb) return ha - hb;
-                    // final stable fallback
                     return a.key.localeCompare(b.key);
                 });
             }
@@ -1533,7 +1532,7 @@
                 return [];
             }
 
-            // Score games (for candidate pool ordering)
+            // Score games (used only for candidate pool ordering + display)
             const scoreByGame = {};
             for (const g of gameData.games) scoreByGame[g.id] = 0;
 
@@ -1556,10 +1555,10 @@
                 return [];
             }
 
-            const CANDIDATE_LIMIT = Math.min(5, scoredGames.length);
-            let candidateIds = scoredGames.slice(0, CANDIDATE_LIMIT).map(x => x.game.id);
-
             const seatSeed = gameData.gameNightDate || gameData.votingDeadline || '';
+
+            const CANDIDATE_POOL = Math.min(6, scoredGames.length);
+            const candidatePoolIds = scoredGames.slice(0, CANDIDATE_POOL).map(x => x.game.id);
 
             function runSeating(activeIds) {
                 const activeSet = new Set(activeIds);
@@ -1588,10 +1587,14 @@
                     const stillUnassigned = [];
                     for (const v of unassigned) {
                         const forcedGameId = manual[v.key];
+
                         if (forcedGameId === -1) {
                             seatNotes[v.key] = 'Admin marked as unassigned';
                             stillUnassigned.push(v);
-                        } else if (forcedGameId && activeSet.has(forcedGameId)) {
+                            continue;
+                        }
+
+                        if (forcedGameId && activeSet.has(forcedGameId)) {
                             const game = gameData.games.find(g => g.id === forcedGameId);
                             const seatsLeft = game ? Math.max(0, (game.maxPlayers || 0) - assignedByGame[forcedGameId].length) : 0;
                             if (seatsLeft > 0) {
@@ -1653,65 +1656,104 @@
                 return { assignedByGame, unassigned, spillWantedByGame, assignedGameByVoter, seatNotes };
             }
 
-            function pruneAndSeat(activeIds) {
-                let active = [...activeIds];
+            function validateSeating(activeIds, seating) {
+                // A selected game must not end up "partially filled" below minPlayers,
+                // and also shouldn't be selected if nobody ended up in it.
+                for (const id of activeIds) {
+                    const game = gameData.games.find(g => g.id === id);
+                    if (!game) return false;
 
-                while (true) {
-                    const seating = runSeating(active);
+                    const assignedCount = seating.assignedByGame[id]?.length || 0;
 
-                    const nonViable = [];
-                    for (const id of active) {
-                        const game = gameData.games.find(g => g.id === id);
-                        if (!game) continue;
+                    if (assignedCount === 0) return false;
 
-                        const assignedCount = seating.assignedByGame[id]?.length || 0;
-                        const minP = game.minPlayers || 0;
+                    const minP = game.minPlayers || 0;
+                    if (minP > 0 && assignedCount < minP) return false;
+                }
+                return true;
+            }
 
-                        if (minP > 0 && assignedCount > 0 && assignedCount < minP) nonViable.push(id);
+            function outcomeMetrics(activeIds, seating) {
+                let totalAssigned = 0;
+                let first = 0, second = 0, third = 0, manual = 0;
+
+                for (const id of activeIds) {
+                    const rows = seating.assignedByGame[id] || [];
+                    totalAssigned += rows.length;
+                    for (const r of rows) {
+                        if (r.rank === 0) manual++;
+                        else if (r.rank === 1) first++;
+                        else if (r.rank === 2) second++;
+                        else if (r.rank === 3) third++;
                     }
+                }
 
-                    if (nonViable.length === 0) return { active, seating };
+                const unassignedCount = seating.unassigned.length;
 
-                    active = active.filter(id => !nonViable.includes(id));
-                    if (active.length === 0) return { active, seating: runSeating([]) };
+                return { totalAssigned, first, second, third, manual, unassignedCount };
+            }
+
+            function betterOutcome(a, b) {
+                // Maximize seated people first. Then maximize 1st/2nd choice.
+                // Then minimize 3rd choice and unassigned.
+                if (!b) return true;
+
+                if (a.totalAssigned !== b.totalAssigned) return a.totalAssigned > b.totalAssigned;
+                if (a.first !== b.first) return a.first > b.first;
+                if (a.second !== b.second) return a.second > b.second;
+                if (a.third !== b.third) return a.third < b.third;
+                if (a.unassignedCount !== b.unassignedCount) return a.unassignedCount < b.unassignedCount;
+
+                // final tie-break: prefer fewer games (not relevant here) / higher total points
+                return false;
+            }
+
+            function combinations(arr, k) {
+                const out = [];
+                function rec(start, chosen) {
+                    if (chosen.length === k) {
+                        out.push(chosen.slice());
+                        return;
+                    }
+                    for (let i = start; i < arr.length; i++) {
+                        chosen.push(arr[i]);
+                        rec(i + 1, chosen);
+                        chosen.pop();
+                    }
+                }
+                rec(0, []);
+                return out;
+            }
+
+            const targetGames = Math.min(playerCountTarget(voters.length), candidatePoolIds.length);
+            const subsets = (targetGames <= 0) ? [] : combinations(candidatePoolIds, targetGames);
+
+            let best = null;
+
+            for (const subsetIds of subsets) {
+                const seating = runSeating(subsetIds);
+                if (!validateSeating(subsetIds, seating)) continue;
+
+                const metrics = outcomeMetrics(subsetIds, seating);
+                if (betterOutcome(metrics, best?.metrics)) {
+                    best = { ids: subsetIds, seating, metrics };
                 }
             }
 
-            let { active: viableIds, seating: viableSeating } = pruneAndSeat(candidateIds);
-            if (viableIds.length === 0) {
-                lastSeatingState = { unassigned: voters.map(v => v.name), seatNotes: {} };
-                return [];
+            // Fallback if no valid subset (rare): just pick top scored games
+            if (!best) {
+                const fallbackIds = candidatePoolIds.slice(0, targetGames);
+                const seating = runSeating(fallbackIds);
+
+                best = { ids: fallbackIds, seating, metrics: outcomeMetrics(fallbackIds, seating) };
             }
 
-            const targetGames = playerCountTarget(voters.length);
-
-            function seatedCount(seating, ids) {
-                let c = 0;
-                for (const id of ids) c += (seating.assignedByGame[id]?.length || 0);
-                return c;
-            }
-
-            while (viableIds.length > targetGames) {
-                const dropCandidate = [...viableIds]
-                    .sort((a, b) => (scoreByGame[a] || 0) - (scoreByGame[b] || 0))[0];
-
-                const testIds = viableIds.filter(id => id !== dropCandidate);
-
-                const beforeSeated = seatedCount(viableSeating, viableIds);
-                const { active: testActive, seating: testSeating } = pruneAndSeat(testIds);
-                const afterSeated = seatedCount(testSeating, testActive);
-
-                if (testActive.length > 0 && afterSeated >= beforeSeated) {
-                    viableIds = testActive;
-                    viableSeating = testSeating;
-                } else {
-                    break;
-                }
-            }
+            const chosenIds = best.ids;
+            const chosenSeating = best.seating;
 
             lastSeatingState = {
-                unassigned: viableSeating.unassigned.map(v => v.name),
-                seatNotes: viableSeating.seatNotes || {}
+                unassigned: chosenSeating.unassigned.map(v => v.name),
+                seatNotes: chosenSeating.seatNotes || {}
             };
 
             function gameNameById(id) {
@@ -1720,10 +1762,10 @@
             }
 
             const overflowByGame = {};
-            for (const id of viableIds) overflowByGame[id] = [];
+            for (const id of chosenIds) overflowByGame[id] = [];
 
-            for (const id of viableIds) {
-                const wanted = viableSeating.spillWantedByGame[id] || [];
+            for (const id of chosenIds) {
+                const wanted = chosenSeating.spillWantedByGame[id] || [];
                 const seenSpill = new Set();
 
                 for (const w of wanted) {
@@ -1731,7 +1773,7 @@
                     if (seenSpill.has(k)) continue;
                     seenSpill.add(k);
 
-                    const assignedId = viableSeating.assignedGameByVoter.get(w.voterKey);
+                    const assignedId = chosenSeating.assignedGameByVoter.get(w.voterKey);
                     if (assignedId && assignedId !== id) {
                         overflowByGame[id].push(`${w.name} (moved to ${gameNameById(assignedId)})`);
                     } else if (!assignedId) {
@@ -1740,10 +1782,10 @@
                 }
             }
 
-            const results = viableIds
+            const results = chosenIds
                 .map(id => {
                     const game = gameData.games.find(g => g.id === id);
-                    const assigned = (viableSeating.assignedByGame[id] || [])
+                    const assigned = (chosenSeating.assignedByGame[id] || [])
                         .slice()
                         .sort((a, b) => (a.rank - b.rank) || a.name.localeCompare(b.name))
                         .map(x => x.name);
