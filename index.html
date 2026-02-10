@@ -201,18 +201,25 @@
             border-radius: 8px;
             border: 2px solid #e0e0e0;
             cursor: pointer;
-            transition: all 0.3s;
+            transition: all 0.3s ease;
             position: relative;
+            transform: translateY(0);
         }
         
         .voting-card:hover {
             border-color: #667eea;
-            box-shadow: 0 4px 8px rgba(102, 126, 234, 0.2);
+            box-shadow: 0 6px 12px rgba(102, 126, 234, 0.25);
+            transform: translateY(-4px);
         }
         
         .voting-card.selected {
             border-color: #667eea;
             background: #e8eaf6;
+            box-shadow: 0 4px 8px rgba(102, 126, 234, 0.3);
+        }
+        
+        .voting-card.selected:hover {
+            transform: translateY(-2px);
         }
         
         .voting-card .rank-badge {
@@ -221,14 +228,15 @@
             right: 10px;
             background: #667eea;
             color: white;
-            width: 30px;
-            height: 30px;
+            width: 32px;
+            height: 32px;
             border-radius: 50%;
             display: none;
             align-items: center;
             justify-content: center;
             font-weight: bold;
-            font-size: 16px;
+            font-size: 18px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
         }
         
         .voting-card.selected .rank-badge {
@@ -245,6 +253,33 @@
             color: #666;
             font-size: 13px;
             margin: 4px 0;
+        }
+        
+        .selection-counter {
+            background: #fff3cd;
+            border: 2px solid #ffc107;
+            border-radius: 6px;
+            padding: 12px;
+            margin: 15px 0;
+            text-align: center;
+            font-weight: 600;
+            color: #856404;
+        }
+        
+        .selection-counter.complete {
+            background: #d4edda;
+            border-color: #4caf50;
+            color: #155724;
+        }
+        
+        .voting-explanation {
+            background: #e3f2fd;
+            border-left: 4px solid #2196f3;
+            padding: 12px 15px;
+            margin: 15px 0;
+            border-radius: 4px;
+            font-size: 14px;
+            color: #0d47a1;
         }
         
         .game-night-info {
@@ -265,6 +300,54 @@
             font-size: 16px;
             color: #333;
             margin: 5px 0;
+        }
+        
+        .manage-games-section {
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 2px solid #e0e0e0;
+        }
+        
+        .game-management-grid {
+            display: grid;
+            gap: 12px;
+            margin-top: 15px;
+        }
+        
+        .game-mgmt-item {
+            background: #f8f9fa;
+            padding: 12px;
+            border-radius: 6px;
+            border-left: 4px solid #667eea;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .game-mgmt-info {
+            flex: 1;
+        }
+        
+        .game-mgmt-info h4 {
+            margin: 0 0 4px 0;
+            color: #333;
+            font-size: 16px;
+        }
+        
+        .game-mgmt-info .mgmt-detail {
+            font-size: 13px;
+            color: #666;
+            margin: 2px 0;
+        }
+        
+        .game-mgmt-actions {
+            display: flex;
+            gap: 8px;
+        }
+        
+        .game-mgmt-actions button {
+            padding: 6px 12px;
+            font-size: 12px;
         }
         
         @media (max-width: 1200px) {
@@ -426,7 +509,13 @@
                 <input type="text" id="voterName" placeholder="Enter your name">
             </div>
             
+            <div class="voting-explanation">
+                <strong>How voting works:</strong> Your 1st choice gets 3 points, 2nd choice gets 2 points, and 3rd choice gets 1 point. The three games with the most points win!
+            </div>
+            
             <p style="margin: 15px 0; color: #666;">Click on 3 games in order of preference (1st, 2nd, 3rd choice):</p>
+            
+            <div id="selectionCounter" class="selection-counter"></div>
             
             <div id="votingGrid" class="voting-grid"></div>
             
@@ -463,6 +552,10 @@
                     <label for="maxPlayers">Max Players:</label>
                     <input type="number" id="maxPlayers" min="1" value="4">
                 </div>
+            </div>
+            <div class="form-group">
+                <label for="gameLength">Game Length (minutes, optional):</label>
+                <input type="number" id="gameLength" placeholder="e.g., 60" min="1">
             </div>
             <div class="form-group">
                 <label class="checkbox-label">
@@ -524,6 +617,13 @@
                     </div>
                     <button onclick="saveGameNightDates()">Set Dates</button>
                     <button class="danger" onclick="resetForNewWeek()">Reset for New Week</button>
+                    
+                    <!-- Game Management Section -->
+                    <div class="manage-games-section">
+                        <h3 style="color: #667eea; margin-bottom: 10px;">Manage Games</h3>
+                        <div id="gameManagementGrid" class="game-management-grid"></div>
+                    </div>
+                    
                     <div class="form-group" style="margin-top: 20px;">
                         <label for="newAdminPassword">Change Admin Password:</label>
                         <input type="password" id="newAdminPassword" placeholder="Enter new password">
@@ -781,6 +881,7 @@
             const ownerName = document.getElementById('ownerName').value.trim();
             const gameName = document.getElementById('gameName').value.trim();
             const bggLink = document.getElementById('bggLink').value.trim();
+            const gameLength = document.getElementById('gameLength').value.trim();
             const minPlayers = parseInt(document.getElementById('minPlayers').value);
             const maxPlayers = parseInt(document.getElementById('maxPlayers').value);
             const canTeach = document.getElementById('canTeach').checked;
@@ -806,6 +907,10 @@
                     if (bggLink && !existingGame.bggLink) {
                         existingGame.bggLink = bggLink;
                     }
+                    // Update game length if provided and not already set
+                    if (gameLength && !existingGame.gameLength) {
+                        existingGame.gameLength = parseInt(gameLength);
+                    }
                 } else {
                     alert(`${ownerName} is already listed as an owner of ${gameName}`);
                     return;
@@ -816,6 +921,7 @@
                     id: Date.now(),
                     name: gameName,
                     bggLink: bggLink || null,
+                    gameLength: gameLength ? parseInt(gameLength) : null,
                     owners: [{ name: ownerName, canTeach: canTeach }],
                     minPlayers: minPlayers,
                     maxPlayers: maxPlayers
@@ -827,6 +933,7 @@
             document.getElementById('ownerName').value = '';
             document.getElementById('gameName').value = '';
             document.getElementById('bggLink').value = '';
+            document.getElementById('gameLength').value = '';
             document.getElementById('minPlayers').value = '2';
             document.getElementById('maxPlayers').value = '4';
             document.getElementById('canTeach').checked = false;
@@ -854,11 +961,49 @@
             game.bggLink = newLink.trim() || null;
 
             // Optimistic update - refresh UI immediately
-            displayGames();
+            displayGameManagement();
             displayVotingGrid();
             
             // Save in background
             saveData();
+        }
+
+        // Display game management grid (admin only)
+        function displayGameManagement() {
+            const gridDiv = document.getElementById('gameManagementGrid');
+            
+            if (!isAdminLoggedIn) {
+                gridDiv.innerHTML = '';
+                return;
+            }
+            
+            if (gameData.games.length === 0) {
+                gridDiv.innerHTML = '<p style="color: #999;">No games added yet</p>';
+                return;
+            }
+
+            gridDiv.innerHTML = gameData.games.map(game => {
+                const ownersList = game.owners.map(o => 
+                    `${o.name}${o.canTeach ? ' (can teach)' : ''}`
+                ).join(', ');
+
+                const gameLengthText = game.gameLength ? ` • ${game.gameLength} min` : '';
+                const bggText = game.bggLink ? ' • Has BGG link' : '';
+
+                return `
+                    <div class="game-mgmt-item">
+                        <div class="game-mgmt-info">
+                            <h4>${game.name}</h4>
+                            <div class="mgmt-detail">👥 ${game.minPlayers}-${game.maxPlayers} players${gameLengthText}${bggText}</div>
+                            <div class="mgmt-detail">🎲 ${ownersList}</div>
+                        </div>
+                        <div class="game-mgmt-actions">
+                            <button onclick="editBGGLink(${game.id})" style="background: #3498db;">Edit Link</button>
+                            <button onclick="deleteGame(${game.id})" class="danger">Delete</button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
         }
 
         // Display game night info
@@ -933,6 +1078,19 @@
         // Display voting grid
         function displayVotingGrid() {
             const gridDiv = document.getElementById('votingGrid');
+            const counterDiv = document.getElementById('selectionCounter');
+            
+            // Update selection counter
+            const selectedCount = selectedVotes.filter(id => id !== null).length;
+            const remaining = 3 - selectedCount;
+            
+            if (remaining > 0) {
+                counterDiv.className = 'selection-counter';
+                counterDiv.textContent = `You need to select ${remaining} more game${remaining !== 1 ? 's' : ''}`;
+            } else {
+                counterDiv.className = 'selection-counter complete';
+                counterDiv.textContent = '✓ Ready to submit! You\'ve selected 3 games.';
+            }
             
             if (gameData.games.length === 0) {
                 gridDiv.innerHTML = '<p style="color: #999;">No games available to vote on</p>';
@@ -945,7 +1103,11 @@
                 ).join(', ');
 
                 const bggLinkHtml = game.bggLink 
-                    ? `<div class="card-detail"><a href="${game.bggLink}" target="_blank" style="color: #667eea;">View Rules</a></div>` 
+                    ? `<div class="card-detail"><a href="${game.bggLink}" target="_blank" style="color: #667eea;" onclick="event.stopPropagation();">📖 View Rules</a></div>` 
+                    : '';
+
+                const gameLengthHtml = game.gameLength
+                    ? `<div class="card-detail">⏱️ ${game.gameLength} min</div>`
                     : '';
 
                 // Check if this game is selected
@@ -957,6 +1119,7 @@
                         <div class="rank-badge">${rank}</div>
                         <h4>${game.name}</h4>
                         <div class="card-detail">👥 ${game.minPlayers}-${game.maxPlayers} players</div>
+                        ${gameLengthHtml}
                         <div class="card-detail">🎲 ${ownersList}</div>
                         ${bggLinkHtml}
                     </div>
@@ -1273,6 +1436,7 @@
         function updateAllDisplays() {
             displayGameNightInfo();
             displayVotingGrid();
+            displayGameManagement();
             updateVoteDropdowns();
             displayTopGames();
             displayHistory();
