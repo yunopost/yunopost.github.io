@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Vermont State Legislative Board Game Night</title>
+    <title>Board Game Night Organizer</title>
     <style>
         * {
             margin: 0;
@@ -559,7 +559,7 @@
 </head>
 <body>
     <div class="container">
-        <h1>🎲 Vermont State Legislative Board Game Night</h1>
+        <h1>🎲 Board Game Night Organizer</h1>
         
         <!-- Save Status Indicator -->
         <div id="saveStatus" class="save-status">
@@ -1251,472 +1251,39 @@
                         newChoices.push(null);
                     }
                 }
-                return {
-                    ...vote,
-                    choices: newChoices
-                };
-            }).filter(vote => vote.choices.some(c => c !== null)); // Remove votes with no valid choices
-
-            // Optimistic update - refresh UI immediately
-            updateAllDisplays();
-            
-            // Save in background (don't await)
-            saveData();
-        }
-
-        // Display games list
-        
-        // Admin: assign/unassign a player to a specific game (manual override)
-        async function adminAssignPlayer(nameKey, gameId) {
-            if (!isAdminLoggedIn) {
-                alert('Admin access required');
-                return;
-            }
-            if (!gameId) {
-                alert('Pick a game to assign this player to.');
-                return;
-            }
-
-            const gid = parseInt(gameId);
-            const game = gameData.games.find(g => g.id === gid);
-            if (!game) {
-                alert('Game not found');
-                return;
-            }
-
-            if (!gameData.manualAssignments || typeof gameData.manualAssignments !== 'object') {
-                gameData.manualAssignments = {};
-            }
-
-            // One game per person: overwrite any existing assignment
-            gameData.manualAssignments[nameKey] = gid;
-
-            updateAllDisplays();
-            saveData();
-        }
-
-        async function adminUnassignPlayer(nameKey) {
-            if (!isAdminLoggedIn) {
-                alert('Admin access required');
-                return;
-            }
-
-        // Admin: force a player to remain unassigned (won't be auto-seated)
-        async function adminForceUnassigned(nameKey) {
-            if (!isAdminLoggedIn) { alert('Admin access required'); return; }
-            if (!gameData.manualAssignments || typeof gameData.manualAssignments !== 'object') {
-                gameData.manualAssignments = {};
-            }
-            gameData.manualAssignments[nameKey] = -1; // special value = force unassigned
-            updateAllDisplays();
-            saveData();
-        }
-
-        // Admin: clear manual override (returns player to automatic seating)
-        async function adminClearManual(nameKey) {
-            if (!isAdminLoggedIn) { alert('Admin access required'); return; }
-            if (gameData.manualAssignments && Object.prototype.hasOwnProperty.call(gameData.manualAssignments, nameKey)) {
-                delete gameData.manualAssignments[nameKey];
-                updateAllDisplays();
-                saveData();
-            }
-        }
-
-        // Admin: apply move command from UI
-        async function adminApplyMove(nameKey, selectElId) {
-            if (!isAdminLoggedIn) { alert('Admin access required'); return; }
-            const el = document.getElementById(selectElId);
-            if (!el) return;
-            const val = el.value;
-            if (!val) return;
-
-            if (val === 'AUTO') return adminClearManual(nameKey);
-            if (val === 'UNASSIGN') return adminForceUnassigned(nameKey);
-            return adminAssignPlayer(nameKey, val);
-        }
-
-            if (gameData.manualAssignments && gameData.manualAssignments[nameKey]) {
-                delete gameData.manualAssignments[nameKey];
-                updateAllDisplays();
-                saveData();
-            }
-        }
-
-// Display voting grid
-        function displayVotingGrid() {
-            const gridDiv = document.getElementById('votingGrid');
-            const counterDiv = document.getElementById('selectionCounter');
-            
-            // Update selection counter
-            const selectedCount = selectedVotes.filter(id => id !== null).length;
-            const remaining = 3 - selectedCount;
-            
-            if (remaining > 0) {
-                counterDiv.className = 'selection-counter';
-                counterDiv.textContent = `You need to select ${remaining} more game${remaining !== 1 ? 's' : ''}`;
-            } else {
-                counterDiv.className = 'selection-counter complete';
-                counterDiv.textContent = '✓ Ready to submit! You\'ve selected 3 games.';
-            }
-            
-            if (gameData.games.length === 0) {
-                gridDiv.innerHTML = '<p style="color: #999;">No games available to vote on</p>';
-                return;
-            }
-
-            gridDiv.innerHTML = gameData.games.map(game => {
-                const ownersList = game.owners.map(o => 
-                    `${o.name}${o.canTeach ? ' 👨‍🏫' : ''}`
-                ).join(', ');
-
-                const bggLinkHtml = game.bggLink 
-                    ? `<div class="card-detail"><a href="${game.bggLink}" target="_blank" style="color: #667eea;" onclick="event.stopPropagation();">📖 View Rules</a></div>` 
-                    : '';
-
-                const gameLengthHtml = game.gameLength
-                    ? `<div class="card-detail">⏱️ ${game.gameLength} min</div>`
-                    : '';
-
-                // Check if this game is selected
-                const rank = selectedVotes.indexOf(game.id) + 1;
-                const selectedClass = rank > 0 ? 'selected' : '';
-
-                return `
-                    <div class="voting-card ${selectedClass}" onclick="selectGame(${game.id})">
-                        <div class="rank-badge">${rank}</div>
-                        <h4>${game.name}</h4>
-                        <div class="card-detail">👥 ${game.minPlayers}-${game.maxPlayers} players</div>
-                        ${gameLengthHtml}
-                        <div class="card-detail">🎲 ${ownersList}</div>
-                        ${bggLinkHtml}
-                    </div>
-                `;
-            }).join('');
-        }
-
-        // Select a game for voting
-        function selectGame(gameId) {
-            const currentIndex = selectedVotes.indexOf(gameId);
-            
-            if (currentIndex >= 0) {
-                // Game is already selected - deselect it
-                selectedVotes[currentIndex] = null;
-            } else {
-                // Find the first available slot
-                const emptySlot = selectedVotes.indexOf(null);
-                if (emptySlot >= 0) {
-                    selectedVotes[emptySlot] = gameId;
-                } else {
-                    alert('You can only select 3 games. Deselect one first.');
-                    return;
-                }
-            }
-            
-            // Refresh the grid
-            displayVotingGrid();
-        }
-
-        // Update vote dropdowns (legacy - keeping for backward compatibility with winner dropdown)
-        function updateVoteDropdowns() {
-            // Update winner dropdown
-            const winnerSelect = document.getElementById('winnerGame');
-            const currentWinnerValue = winnerSelect.value;
-            winnerSelect.innerHTML = '<option value="">Select a game</option>';
-            
-            const topGames = calculateTopGames();
-            topGames.forEach(gameResult => {
-                const option = document.createElement('option');
-                option.value = gameResult.game.id;
-                option.textContent = gameResult.game.name;
-                winnerSelect.appendChild(option);
-            });
-            
-            winnerSelect.value = currentWinnerValue;
-        }
-
-        // Submit vote (optimistic update)
-        async function submitVote() {
-            if (!isVotingOpen()) {
-                alert('Voting is currently closed!');
-                return;
-            }
-
-            const voterName = document.getElementById('voterName').value.trim();
-
-            if (!voterName) {
-                alert('Please enter your name');
-                return;
-            }
-
-            // Check if user selected 3 games
-            const validChoices = selectedVotes.filter(id => id !== null);
-            if (validChoices.length !== 3) {
-                alert('Please select exactly 3 games');
-                return;
-            }
-
-            // Remove existing vote from this person
-            gameData.votes = gameData.votes.filter(v => v.voterName.toLowerCase() !== voterName.toLowerCase());
-
-            // Add new vote
-            const vote = {
-                voterName: voterName,
-                choices: [...selectedVotes]
-            };
-
-            gameData.votes.push(vote);
-
-            // Clear form and selections
-            document.getElementById('voterName').value = '';
-            selectedVotes = [null, null, null];
-
-            // Optimistic update - refresh UI immediately
-            updateAllDisplays();
-            alert('Vote submitted successfully!');
-            
-            // Save in background (don't await)
-            saveData();
-        }
-
-        // Calculate top games with spillover
-        function calculateTopGames() {
-            if (gameData.games.length === 0 || gameData.votes.length === 0) {
-                lastSeatingState = { unassigned: [], seatNotes: {} };
-                return [];
-            }
-
-            function normalizeName(name) {
-                return String(name || '').trim().toLowerCase();
-            }
-
-            function stableHash(str) {
-                // Simple deterministic hash (djb2)
-                let h = 5381;
-                for (let i = 0; i < str.length; i++) {
-                    h = ((h << 5) + h) + str.charCodeAt(i);
-                    h = h >>> 0; // unsigned
-                }
-                return h;
-            }
-
-            function deterministicSortApplicants(applicants, gameId, seed) {
-                // Stable tie-breaker: sort by hash(seed + voterKey + gameId)
-                const s = String(seed || '');
-                return applicants.sort((a, b) => {
-                    const ha = stableHash(`${s}|${gameId}|${a.key}`);
-                    const hb = stableHash(`${s}|${gameId}|${b.key}`);
-                    if (ha !== hb) return ha - hb;
-                    return a.key.localeCompare(b.key);
-                });
-            }
-
-            function playerCountTarget(totalPlayers) {
-                if (totalPlayers <= 6) return 1;
-                if (totalPlayers <= 10) return 2;
-                return 3;
-            }
-
-            // Build unique voter list
-            const voters = [];
-            const seen = new Set();
-            for (const v of gameData.votes) {
-                const key = normalizeName(v.voterName);
-                if (!key || seen.has(key)) continue;
-                seen.add(key);
-                const choices = (v.choices || []).filter(id => id != null);
-                voters.push({ key, name: String(v.voterName).trim(), choices });
-            }
-
-            if (voters.length === 0) {
-                lastSeatingState = { unassigned: [], seatNotes: {} };
-                return [];
-            }
-
-            // Score games (used only for candidate pool ordering + display)
-            const scoreByGame = {};
-            for (const g of gameData.games) scoreByGame[g.id] = 0;
-
-            for (const v of voters) {
-                for (let i = 0; i < 3; i++) {
-                    const gameId = v.choices[i];
-                    if (gameId == null) continue;
-                    const points = [3, 2, 1][i];
-                    scoreByGame[gameId] = (scoreByGame[gameId] || 0) + points;
-                }
-            }
-
-            const scoredGames = gameData.games
-                .map(g => ({ game: g, score: scoreByGame[g.id] || 0 }))
-                .filter(x => x.score > 0)
-                .sort((a, b) => b.score - a.score);
-
-            if (scoredGames.length === 0) {
-                lastSeatingState = { unassigned: voters.map(v => v.name), seatNotes: {} };
-                return [];
-            }
-
-            const seatSeed = gameData.gameNightDate || gameData.votingDeadline || '';
-
-            const CANDIDATE_POOL = Math.min(6, scoredGames.length);
-            const candidatePoolIds = scoredGames.slice(0, CANDIDATE_POOL).map(x => x.game.id);
-
-            function runSeating(activeIds) {
-                const activeSet = new Set(activeIds);
-
-                const assignedByGame = {};
-                const spillWantedByGame = {};
-                const seatNotes = {}; // voterKey -> note
-                for (const id of activeIds) {
-                    assignedByGame[id] = [];
-                    spillWantedByGame[id] = [];
-                }
-
-                const assignedGameByVoter = new Map();
-
-                let unassigned = voters.map(v => ({
-                    ...v,
-                    choices: v.choices.filter(id => activeSet.has(id))
-                }));
-
-                // Manual assignments first
-                const manual = (gameData.manualAssignments && typeof gameData.manualAssignments === 'object')
-                    ? gameData.manualAssignments
-                    : {};
-
-                if (Object.keys(manual).length > 0) {
-                    const stillUnassigned = [];
-                    for (const v of unassigned) {
-                        const forcedGameId = manual[v.key];
-
-                        if (forcedGameId === -1) {
-                            seatNotes[v.key] = 'Admin marked as unassigned';
-                            stillUnassigned.push(v);
-                            continue;
-                        }
-
-                        if (forcedGameId && activeSet.has(forcedGameId)) {
-                            const game = gameData.games.find(g => g.id === forcedGameId);
-                            const seatsLeft = game ? Math.max(0, (game.maxPlayers || 0) - assignedByGame[forcedGameId].length) : 0;
-                            if (seatsLeft > 0) {
-                                assignedByGame[forcedGameId].push({ name: v.name, rank: 0 }); // 0 = admin assigned
-                                assignedGameByVoter.set(v.key, forcedGameId);
-                            } else {
-                                seatNotes[v.key] = `Admin assigned to ${game ? game.name : 'a game'}, but it was full`;
-                                stillUnassigned.push(v);
-                            }
-                        } else {
-                            stillUnassigned.push(v);
-                        }
-                    }
-                    unassigned = stillUnassigned;
-                }
-
-                // Rank rounds: 1st, 2nd, 3rd
-                for (let rank = 0; rank < 3; rank++) {
-                    const applicantsByGame = {};
-                    for (const id of activeIds) applicantsByGame[id] = [];
-
-                    const stillUnassigned = [];
-                    for (const v of unassigned) {
-                        const desired = v.choices[rank];
-                        if (desired != null && activeSet.has(desired)) {
-                            applicantsByGame[desired].push(v);
-                        } else {
-                            stillUnassigned.push(v);
-                        }
-                    }
-
-                    for (const id of activeIds) {
-                        const game = gameData.games.find(g => g.id === id);
-                        if (!game) continue;
-
-                        const applicants = applicantsByGame[id];
-                        if (!applicants || applicants.length === 0) continue;
-
-                        deterministicSortApplicants(applicants, id, seatSeed);
-
-                        const seatsLeft = Math.max(0, (game.maxPlayers || 0) - assignedByGame[id].length);
-                        const winners = applicants.slice(0, seatsLeft);
-                        const losers = applicants.slice(seatsLeft);
-
-                        for (const w of winners) {
-                            assignedByGame[id].push({ name: w.name, rank: rank + 1 });
-                            assignedGameByVoter.set(w.key, id);
-                        }
-
-                        for (const l of losers) {
-                            spillWantedByGame[id].push({ name: l.name, wantedRank: rank + 1, voterKey: l.key });
-                            stillUnassigned.push(l);
-                        }
-                    }
-
-                    unassigned = stillUnassigned;
-                }
-
-                return { assignedByGame, unassigned, spillWantedByGame, assignedGameByVoter, seatNotes };
-            }
-
-            function validateSeating(activeIds, seating) {
-                // Hard reject only truly empty tables; treat minPlayers as a soft constraint (scored later).
-                for (const id of activeIds) {
-                    const assignedCount = seating.assignedByGame[id]?.length || 0;
-                    if (assignedCount === 0) return false;
-                }
-                return true;
-            }
-
-            function outcomeMetrics(activeIds, seating) {
-                let totalAssigned = 0;
-                let first = 0, second = 0, third = 0, manual = 0;
-                let belowMin = 0;
-
-                for (const id of activeIds) {
-                    const game = gameData.games.find(g => g.id === id);
-                    const rows = seating.assignedByGame[id] || [];
-                    totalAssigned += rows.length;
-
-                    const minP = game?.minPlayers || 0;
-                    if (minP > 0 && rows.length > 0 && rows.length < minP) belowMin++;
-
-                    for (const r of rows) {
-                        if (r.rank === 0) manual++;
-                        else if (r.rank === 1) first++;
-                        else if (r.rank === 2) second++;
-                        else if (r.rank === 3) third++;
-                    }
-                }
-
-                const unassignedCount = seating.unassigned.length;
-
                 return { 
                     totalAssigned, first, second, third, manual, 
                     unassignedCount,
                     belowMin,
-                    gameCount: activeIds.length
+                    gameCount: activeIds.length,
+                    firstExclusionPenalty: strongFirstExclusionPenalty(activeIds)
                 };
             }
 
             function betterOutcome(a, b) {
                 if (!b) return true;
 
-                // 1) Primary: minimize unassigned (try to seat everyone)
+                // 1) Primary: minimize unassigned (seat everyone if possible)
                 if (a.unassignedCount !== b.unassignedCount) return a.unassignedCount < b.unassignedCount;
 
-                // 2) Then maximize seated people (mostly redundant with unassignedCount, but safe)
-                if (a.totalAssigned !== b.totalAssigned) return a.totalAssigned > b.totalAssigned;
+                // 2) Prefer fewer tables when outcomes are otherwise similar
+                if (a.gameCount !== b.gameCount) return a.gameCount < b.gameCount;
 
-                // 3) Then maximize 1st/2nd choices
+                // 3) Prefer meeting minPlayers when possible (soft)
+                if (a.belowMin !== b.belowMin) return a.belowMin < b.belowMin;
+
+                // 4) Strong #1 soft protection: penalize excluding strong #1 games
+                if (a.firstExclusionPenalty !== b.firstExclusionPenalty) return a.firstExclusionPenalty < b.firstExclusionPenalty;
+
+                // 5) Then maximize 1st/2nd choices
                 if (a.first !== b.first) return a.first > b.first;
                 if (a.second !== b.second) return a.second > b.second;
 
-                // 4) Prefer fewer tables when outcomes are otherwise similar
-                if (a.gameCount !== b.gameCount) return a.gameCount < b.gameCount;
-
-                // 5) Prefer meeting minPlayers when possible (soft)
-                if (a.belowMin !== b.belowMin) return a.belowMin < b.belowMin;
-
                 // 6) Finally minimize 3rd-choice assignments
                 if (a.third !== b.third) return a.third < b.third;
+
+                // 7) Tie-break: maximize seated people (should usually be equal if unassigned equal)
+                if (a.totalAssigned !== b.totalAssigned) return a.totalAssigned > b.totalAssigned;
 
                 return false;
             }
@@ -1745,6 +1312,7 @@
             for (let k = 1; k <= maxK; k++) {
                 const subsets = combinations(candidatePoolIds, k);
                 for (const subsetIds of subsets) {
+
                     const seating = runSeating(subsetIds);
                     if (!validateSeating(subsetIds, seating)) continue;
 
