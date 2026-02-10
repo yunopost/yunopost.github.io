@@ -1557,45 +1557,11 @@
 
             const seatSeed = gameData.gameNightDate || gameData.votingDeadline || '';
 
+            // OPTIMIZATION: Cap candidate pool at 6 games to avoid evaluating too many combinations
+            // With 6 games: C(6,1) + C(6,2) + C(6,3) = 6 + 15 + 20 = 41 combinations
+            // With 10 games: C(10,1) + C(10,2) + C(10,3) = 10 + 45 + 120 = 175 combinations
             const CANDIDATE_POOL = Math.min(6, scoredGames.length);
             const candidatePoolIds = scoredGames.slice(0, CANDIDATE_POOL).map(x => x.game.id);
-
-            // --- Strong #1 soft protection ---
-            // Identify games with strong #1 support (>=2 first-choice voters),
-            // that can form a valid table (meets minPlayers) and can seat all their #1 voters (<= maxPlayers).
-            // We'll apply a penalty if an evaluated subset excludes these games, instead of hard-forcing them.
-            const firstChoiceCount = {};
-            for (const g of gameData.games) firstChoiceCount[g.id] = 0;
-            for (const v of voters) {
-                const firstId = v.choices[0];
-                if (firstId != null) firstChoiceCount[firstId] = (firstChoiceCount[firstId] || 0) + 1;
-            }
-
-            const strongFirstChoiceIds = gameData.games
-                .filter(g => {
-                    const c = firstChoiceCount[g.id] || 0;
-                    const minP = g.minPlayers || 0;
-                    const maxP = g.maxPlayers || 0;
-                    return c >= 2 && c >= minP && c <= maxP;
-                })
-                .map(g => g.id);
-
-            // Ensure strong #1 games appear in the candidate pool even if their point score is lower.
-            strongFirstChoiceIds.forEach(id => {
-                if (!candidatePoolIds.includes(id)) candidatePoolIds.push(id);
-            });
-
-            function strongFirstExclusionPenalty(activeIds) {
-                const active = new Set(activeIds);
-                let penalty = 0;
-                for (const v of voters) {
-                    const firstId = v.choices[0];
-                    if (firstId != null && strongFirstChoiceIds.includes(firstId) && !active.has(firstId)) {
-                        penalty += 5; // strong penalty per harmed voter (tunable)
-                    }
-                }
-                return penalty;
-            }
 
             function runSeating(activeIds) {
                 const activeSet = new Set(activeIds);
@@ -1736,23 +1702,29 @@
             function betterOutcome(a, b) {
                 if (!b) return true;
 
+                // Early win: everyone seated + everyone gets 1st or 2nd choice = perfect outcome
+                const aPerfect = (a.unassignedCount === 0 && a.first + a.second === a.totalAssigned);
+                const bPerfect = (b.unassignedCount === 0 && b.first + b.second === b.totalAssigned);
+                
+                if (aPerfect && !bPerfect) return true;
+                if (!aPerfect && bPerfect) return false;
+
                 // 1) Primary: minimize unassigned (seat everyone if possible)
                 if (a.unassignedCount !== b.unassignedCount) return a.unassignedCount < b.unassignedCount;
 
-                // 2) Strong #1 soft protection: avoid excluding strong #1 games (penalize per harmed voter)
-                if (a.firstExclusionPenalty !== b.firstExclusionPenalty) return a.firstExclusionPenalty < b.firstExclusionPenalty;
-
-                // 3) Prefer fewer tables when outcomes are otherwise similar
-                if (a.gameCount !== b.gameCount) return a.gameCount < b.gameCount;
-
-                // 4) Prefer meeting minPlayers when possible (soft)
-                if (a.belowMin !== b.belowMin) return a.belowMin < b.belowMin;
-
-                // 5) Then maximize 1st/2nd choices
+                // 2) Maximize 1st choices - prioritize first choice satisfaction
                 if (a.first !== b.first) return a.first > b.first;
+
+                // 3) Maximize 2nd choices
                 if (a.second !== b.second) return a.second > b.second;
 
-                // 6) Finally minimize 3rd-choice assignments
+                // 4) Prefer fewer tables when outcomes are otherwise similar
+                if (a.gameCount !== b.gameCount) return a.gameCount < b.gameCount;
+
+                // 5) Prefer meeting minPlayers when possible (soft)
+                if (a.belowMin !== b.belowMin) return a.belowMin < b.belowMin;
+
+                // 6) Minimize 3rd-choice assignments
                 if (a.third !== b.third) return a.third < b.third;
 
                 // 7) Tie-break: maximize seated people
@@ -1789,9 +1761,25 @@
                     if (!validateSeating(subsetIds, seating)) continue;
 
                     const metrics = outcomeMetrics(subsetIds, seating);
+                    
                     if (betterOutcome(metrics, best?.metrics)) {
                         best = { ids: subsetIds, seating, metrics };
+                        
+                        // Early termination: if we found a perfect outcome, stop searching
+                        const isPerfect = (metrics.unassignedCount === 0 && 
+                                         metrics.first + metrics.second === metrics.totalAssigned);
+                        if (isPerfect) {
+                            console.log('Found perfect outcome, stopping search early');
+                            break;
+                        }
                     }
+                }
+                
+                // If we found a perfect outcome in this k-value, no need to try larger k
+                if (best && best.metrics.unassignedCount === 0 && 
+                    best.metrics.first + best.metrics.second === best.metrics.totalAssigned) {
+                    console.log('Perfect outcome found, stopping all searches');
+                    break;
                 }
             }
 
