@@ -857,9 +857,14 @@
                         games: result.data.games || [],
                         votes: votes,
                         history: result.data.history || [],
-                        votingDeadline: result.data.settings.votingDeadline || getNextTuesday(),
-                        gameNightDate: result.data.settings.gameNightDate || getNextWednesday(),
-                        adminPassword: result.data.settings.adminPassword || 'admin123'
+                        votingDeadline: normalizeYMD(result.data.settings?.votingDeadline) || getNextTuesday(),
+                        gameNightDate: normalizeYMD(result.data.settings?.gameNightDate) || getNextWednesday(),
+                        adminPassword: (result.data.settings && result.data.settings.adminPassword) ? String(result.data.settings.adminPassword) : 'admin123',
+                        manualAssignments: (() => {
+                            const raw = result.data.settings ? result.data.settings.manualAssignments : '';
+                            if (!raw) return {};
+                            try { return JSON.parse(raw); } catch { return {}; }
+                        })()
                     };
                     
                     console.log('Data loaded successfully. Games:', gameData.games.length);
@@ -957,18 +962,47 @@
         }
 
         // Check if voting is open
-        function isVotingOpen() {
-            if (!gameData.votingDeadline) return true;
-            
-            // Parse deadline as local date
-            const [year, month, day] = gameData.votingDeadline.split('-').map(Number);
-            const deadline = new Date(year, month - 1, day);
-            
-            // Set deadline to end of day (11:59:59 PM)
-            deadline.setHours(23, 59, 59, 999);
-            
+        
+        // Normalize dates coming from Google Sheets (can be YYYY-MM-DD, a Date-like string, or an ISO timestamp)
+        function normalizeYMD(value) {
+            if (value == null) return '';
+            let s = String(value).trim();
+            if (!s) return '';
+            // If it's an ISO timestamp, chop to date
+            if (/^\d{4}-\d{2}-\d{2}T/.test(s)) return s.split('T')[0];
+            // If it's already YYYY-MM-DD
+            if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+
+            // Try parsing other date strings (e.g., "2/10/2026", "Feb 10, 2026")
+            const d = new Date(s);
+            if (!isNaN(d)) {
+                const y = d.getFullYear();
+                const m = String(d.getMonth() + 1).padStart(2, '0');
+                const day = String(d.getDate()).padStart(2, '0');
+                return `${y}-${m}-${day}`;
+            }
+            return s; // last resort (may be invalid)
+        }
+
+        // Parse YYYY-MM-DD into a LOCAL Date object (avoids timezone shifting)
+        function parseLocalYMD(value) {
+            const ymd = normalizeYMD(value);
+            const m = ymd.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+            if (!m) return null;
+            const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+            return isNaN(d) ? null : d;
+        }
+
+
+function isVotingOpen() {
+            const deadlineDate = parseLocalYMD(gameData.votingDeadline);
+            if (!deadlineDate) return true; // no/invalid deadline = treat as open
+
+            // Set deadline to end of day (11:59:59 PM local time)
+            deadlineDate.setHours(23, 59, 59, 999);
+
             const now = new Date();
-            return now < deadline;
+            return now < deadlineDate;
         }
 
         // Update voting status display
@@ -977,13 +1011,34 @@
             const warningDiv = document.getElementById('votingWarning');
             const votingDeadlineInput = document.getElementById('votingDeadline');
             const gameNightDateInput = document.getElementById('gameNightDate');
-            
-            console.log('updateVotingStatus called, deadline:', gameData.votingDeadline);
-            
-            // Update the input fields with current dates
-            if (gameData.votingDeadline) {
-                votingDeadlineInput.value = gameData.votingDeadline;
+
+            // Keep the date inputs showing the raw YYYY-MM-DD value we store
+            if (gameData.votingDeadline) votingDeadlineInput.value = normalizeYMD(gameData.votingDeadline);
+            if (gameData.gameNightDate) gameNightDateInput.value = normalizeYMD(gameData.gameNightDate);
+
+            const deadline = parseLocalYMD(gameData.votingDeadline);
+
+            if (!deadline) {
+                statusDiv.className = 'voting-status voting-open';
+                statusDiv.textContent = 'Voting is OPEN (no valid deadline set)';
+                warningDiv.style.display = 'none';
+                return;
             }
+
+            const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+            const dateStr = deadline.toLocaleDateString('en-US', options);
+
+            if (isVotingOpen()) {
+                statusDiv.className = 'voting-status voting-open';
+                statusDiv.textContent = `Voting is OPEN until ${dateStr}`;
+                warningDiv.style.display = 'none';
+            } else {
+                statusDiv.className = 'voting-status voting-closed';
+                statusDiv.textContent = `Voting CLOSED on ${dateStr}`;
+                warningDiv.style.display = 'block';
+                warningDiv.textContent = 'Voting is currently closed. Contact the organizer to reopen voting.';
+            }
+        }
             if (gameData.gameNightDate) {
                 gameNightDateInput.value = gameData.gameNightDate;
             }
@@ -1195,20 +1250,40 @@
         // Display game night info
         function displayGameNightInfo() {
             const infoDiv = document.getElementById('gameNightInfo');
-            
-            // Parse dates as local dates (not UTC) to avoid timezone issues
-            const [gnYear, gnMonth, gnDay] = gameData.gameNightDate.split('-').map(Number);
-            const gameNightDate = new Date(gnYear, gnMonth - 1, gnDay);
-            
-            const [vdYear, vdMonth, vdDay] = gameData.votingDeadline.split('-').map(Number);
-            const votingDeadline = new Date(vdYear, vdMonth - 1, vdDay);
-            
+
+            const gameNightDate = parseLocalYMD(gameData.gameNightDate);
+            const votingDeadline = parseLocalYMD(gameData.votingDeadline);
+
+            if (!gameNightDate || !votingDeadline) {
+                // If something is missing/invalid, show a simple fallback (and avoid crashing the page)
+                infoDiv.innerHTML = `
+                    <h3>📅 Next Game Night</h3>
+                    <div class="info-detail"><strong>${normalizeYMD(gameData.gameNightDate) || 'Not set'}</strong></div>
+                    <div class="info-detail" style="margin-top: 10px;">Voting closes: ${normalizeYMD(gameData.votingDeadline) || 'Not set'}</div>
+                `;
+                return;
+            }
+
             const gameNightStr = gameNightDate.toLocaleDateString('en-US', { 
                 weekday: 'long', 
                 year: 'numeric', 
                 month: 'long', 
                 day: 'numeric' 
             });
+
+            const votingDeadlineStr = votingDeadline.toLocaleDateString('en-US', { 
+                weekday: 'long', 
+                year: 'numeric', 
+                month: 'long', 
+                day: 'numeric' 
+            });
+
+            infoDiv.innerHTML = `
+                <h3>📅 Next Game Night</h3>
+                <div class="info-detail"><strong>${gameNightStr}</strong></div>
+                <div class="info-detail" style="margin-top: 10px;">Voting closes: ${votingDeadlineStr}</div>
+            `;
+        });
             
             const votingDeadlineStr = votingDeadline.toLocaleDateString('en-US', { 
                 weekday: 'long', 
@@ -1296,10 +1371,13 @@
         }
 
         async function adminUnassignPlayer(nameKey) {
-            if (!isAdminLoggedIn) {
-                alert('Admin access required');
-                return;
+            if (!isAdminLoggedIn) { alert('Admin access required'); return; }
+            if (gameData.manualAssignments && Object.prototype.hasOwnProperty.call(gameData.manualAssignments, nameKey)) {
+                delete gameData.manualAssignments[nameKey];
+                updateAllDisplays();
+                saveData();
             }
+        }
 
         // Admin: force a player to remain unassigned (won't be auto-seated)
         async function adminForceUnassigned(nameKey) {
@@ -1322,7 +1400,7 @@
             }
         }
 
-        // Admin: apply move command from UI
+        // Admin: apply move command from UI (set to a game id, UNASSIGN, or AUTO)
         async function adminApplyMove(nameKey, selectElId) {
             if (!isAdminLoggedIn) { alert('Admin access required'); return; }
             const el = document.getElementById(selectElId);
@@ -1333,13 +1411,6 @@
             if (val === 'AUTO') return adminClearManual(nameKey);
             if (val === 'UNASSIGN') return adminForceUnassigned(nameKey);
             return adminAssignPlayer(nameKey, val);
-        }
-
-            if (gameData.manualAssignments && gameData.manualAssignments[nameKey]) {
-                delete gameData.manualAssignments[nameKey];
-                updateAllDisplays();
-                saveData();
-            }
         }
 
 // Display voting grid
