@@ -955,7 +955,14 @@
         // Check if voting is open
         function isVotingOpen() {
             if (!gameData.votingDeadline) return true;
-            const deadline = new Date(gameData.votingDeadline);
+            
+            // Parse deadline as local date
+            const [year, month, day] = gameData.votingDeadline.split('-').map(Number);
+            const deadline = new Date(year, month - 1, day);
+            
+            // Set deadline to end of day (11:59:59 PM)
+            deadline.setHours(23, 59, 59, 999);
+            
             const now = new Date();
             return now < deadline;
         }
@@ -982,7 +989,10 @@
                 statusDiv.textContent = 'Voting is OPEN (no deadline set)';
                 warningDiv.style.display = 'none';
             } else {
-                const deadline = new Date(gameData.votingDeadline);
+                // Parse as local date to avoid timezone issues
+                const [year, month, day] = gameData.votingDeadline.split('-').map(Number);
+                const deadline = new Date(year, month - 1, day);
+                
                 console.log('Deadline date object:', deadline);
                 const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
                 const dateStr = deadline.toLocaleDateString('en-US', options);
@@ -1182,8 +1192,12 @@
         function displayGameNightInfo() {
             const infoDiv = document.getElementById('gameNightInfo');
             
-            const gameNightDate = new Date(gameData.gameNightDate);
-            const votingDeadline = new Date(gameData.votingDeadline);
+            // Parse dates as local dates (not UTC) to avoid timezone issues
+            const [gnYear, gnMonth, gnDay] = gameData.gameNightDate.split('-').map(Number);
+            const gameNightDate = new Date(gnYear, gnMonth - 1, gnDay);
+            
+            const [vdYear, vdMonth, vdDay] = gameData.votingDeadline.split('-').map(Number);
+            const votingDeadline = new Date(vdYear, vdMonth - 1, vdDay);
             
             const gameNightStr = gameNightDate.toLocaleDateString('en-US', { 
                 weekday: 'long', 
