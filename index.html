@@ -39,22 +39,6 @@
             box-shadow: 0 8px 16px rgba(0,0,0,0.1);
         }
         
-        .games-section {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 25px;
-        }
-        
-        .games-form, .games-display {
-            background: white;
-        }
-        
-        @media (max-width: 968px) {
-            .games-section {
-                grid-template-columns: 1fr;
-            }
-        }
-        
         .section h2 {
             color: #667eea;
             margin-bottom: 20px;
@@ -169,8 +153,136 @@
             background: #c0392b;
         }
         
-        .admin-mode .game-item .delete-btn {
+        .game-item .edit-link-btn {
+            position: absolute;
+            top: 10px;
+            right: 80px;
+            background: #3498db;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            cursor: pointer;
+            display: none;
+        }
+        
+        .game-item .edit-link-btn:hover {
+            background: #2980b9;
+        }
+        
+        .admin-mode .game-item .delete-btn,
+        .admin-mode .game-item .edit-link-btn {
             display: block;
+        }
+        
+        .game-item .bgg-link {
+            display: inline-block;
+            margin-top: 8px;
+            color: #667eea;
+            text-decoration: none;
+            font-size: 13px;
+        }
+        
+        .game-item .bgg-link:hover {
+            text-decoration: underline;
+        }
+        
+        .voting-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 15px;
+            margin-top: 20px;
+        }
+        
+        .voting-card {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            border: 2px solid #e0e0e0;
+            cursor: pointer;
+            transition: all 0.3s;
+            position: relative;
+        }
+        
+        .voting-card:hover {
+            border-color: #667eea;
+            box-shadow: 0 4px 8px rgba(102, 126, 234, 0.2);
+        }
+        
+        .voting-card.selected {
+            border-color: #667eea;
+            background: #e8eaf6;
+        }
+        
+        .voting-card .rank-badge {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: #667eea;
+            color: white;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 16px;
+        }
+        
+        .voting-card.selected .rank-badge {
+            display: flex;
+        }
+        
+        .voting-card h4 {
+            color: #333;
+            margin-bottom: 8px;
+            margin-right: 40px;
+        }
+        
+        .voting-card .card-detail {
+            color: #666;
+            font-size: 13px;
+            margin: 4px 0;
+        }
+        
+        .game-night-info {
+            background: #e8f5e9;
+            border: 2px solid #4caf50;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        
+        .game-night-info h3 {
+            color: #2e7d32;
+            margin-bottom: 10px;
+        }
+        
+        .game-night-info .info-detail {
+            font-size: 16px;
+            color: #333;
+            margin: 5px 0;
+        }
+        
+        @media (max-width: 1200px) {
+            .voting-grid {
+                grid-template-columns: repeat(3, 1fr);
+            }
+        }
+        
+        @media (max-width: 900px) {
+            .voting-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+        
+        @media (max-width: 600px) {
+            .voting-grid {
+                grid-template-columns: 1fr;
+            }
         }
         
         .game-item h3 {
@@ -304,32 +416,21 @@
         <!-- Voting -->
         <div class="section">
             <h2>🗳️ Vote for This Week's Games</h2>
+            
+            <!-- Game Night Info -->
+            <div id="gameNightInfo" class="game-night-info"></div>
+            
             <div id="votingWarning" class="warning" style="display: none;"></div>
             <div class="form-group">
                 <label for="voterName">Your Name:</label>
                 <input type="text" id="voterName" placeholder="Enter your name">
             </div>
-            <div class="rank-selector">
-                <div class="rank-item">
-                    <label for="choice1">1st Choice:</label>
-                    <select id="choice1">
-                        <option value="">Select a game</option>
-                    </select>
-                </div>
-                <div class="rank-item">
-                    <label for="choice2">2nd Choice:</label>
-                    <select id="choice2">
-                        <option value="">Select a game</option>
-                    </select>
-                </div>
-                <div class="rank-item">
-                    <label for="choice3">3rd Choice:</label>
-                    <select id="choice3">
-                        <option value="">Select a game</option>
-                    </select>
-                </div>
-            </div>
-            <button onclick="submitVote()">Submit Vote</button>
+            
+            <p style="margin: 15px 0; color: #666;">Click on 3 games in order of preference (1st, 2nd, 3rd choice):</p>
+            
+            <div id="votingGrid" class="voting-grid"></div>
+            
+            <button onclick="submitVote()" style="margin-top: 20px;">Submit Vote</button>
         </div>
         
         <!-- This Week's Games -->
@@ -341,39 +442,35 @@
         <!-- Add Games -->
         <div class="section">
             <h2>➕ Add a Game</h2>
-            <div class="games-section">
-                <div class="games-form">
-                    <div class="form-group">
-                        <label for="ownerName">Your Name:</label>
-                        <input type="text" id="ownerName" placeholder="Enter your name">
-                    </div>
-                    <div class="form-group">
-                        <label for="gameName">Game Name:</label>
-                        <input type="text" id="gameName" placeholder="Enter game name">
-                    </div>
-                    <div class="two-column">
-                        <div class="form-group">
-                            <label for="minPlayers">Min Players:</label>
-                            <input type="number" id="minPlayers" min="1" value="2">
-                        </div>
-                        <div class="form-group">
-                            <label for="maxPlayers">Max Players:</label>
-                            <input type="number" id="maxPlayers" min="1" value="4">
-                        </div>
-                    </div>
-                    <div class="form-group">
-                        <label class="checkbox-label">
-                            <input type="checkbox" id="canTeach">
-                            I can teach this game
-                        </label>
-                    </div>
-                    <button onclick="addGame()">Add Game</button>
+            <div class="form-group">
+                <label for="ownerName">Your Name:</label>
+                <input type="text" id="ownerName" placeholder="Enter your name">
+            </div>
+            <div class="form-group">
+                <label for="gameName">Game Name:</label>
+                <input type="text" id="gameName" placeholder="Enter game name">
+            </div>
+            <div class="form-group">
+                <label for="bggLink">BoardGameGeek Link (optional):</label>
+                <input type="text" id="bggLink" placeholder="https://boardgamegeek.com/boardgame/...">
+            </div>
+            <div class="two-column">
+                <div class="form-group">
+                    <label for="minPlayers">Min Players:</label>
+                    <input type="number" id="minPlayers" min="1" value="2">
                 </div>
-                <div class="games-display">
-                    <h3 style="margin-top: 0; color: #667eea;">Available Games</h3>
-                    <div id="gamesList" class="game-list"></div>
+                <div class="form-group">
+                    <label for="maxPlayers">Max Players:</label>
+                    <input type="number" id="maxPlayers" min="1" value="4">
                 </div>
             </div>
+            <div class="form-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" id="canTeach">
+                    I can teach this game
+                </label>
+            </div>
+            <button onclick="addGame()">Add Game</button>
         </div>
         
         <!-- History -->
@@ -418,10 +515,14 @@
                 </div>
                 <div class="admin-controls">
                     <div class="form-group">
+                        <label for="gameNightDate">Game Night Date:</label>
+                        <input type="date" id="gameNightDate">
+                    </div>
+                    <div class="form-group">
                         <label for="votingDeadline">Voting Deadline:</label>
                         <input type="date" id="votingDeadline">
                     </div>
-                    <button onclick="saveVotingDeadline()">Set Voting Deadline</button>
+                    <button onclick="saveGameNightDates()">Set Dates</button>
                     <button class="danger" onclick="resetForNewWeek()">Reset for New Week</button>
                     <div class="form-group" style="margin-top: 20px;">
                         <label for="newAdminPassword">Change Admin Password:</label>
@@ -444,10 +545,12 @@
             votes: [],
             history: [],
             votingDeadline: null,
+            gameNightDate: null,
             adminPassword: null
         };
 
         let isAdminLoggedIn = false;
+        let selectedVotes = [null, null, null]; // Track 1st, 2nd, 3rd choices
 
         // Load data from Google Sheets
         async function loadData() {
@@ -470,7 +573,8 @@
                         games: result.data.games || [],
                         votes: votes,
                         history: result.data.history || [],
-                        votingDeadline: result.data.settings.votingDeadline || null,
+                        votingDeadline: result.data.settings.votingDeadline || getNextTuesday(),
+                        gameNightDate: result.data.settings.gameNightDate || getNextWednesday(),
                         adminPassword: result.data.settings.adminPassword || 'admin123'
                     };
                     
@@ -478,13 +582,37 @@
                 } else {
                     console.error('Failed to load data:', result);
                     gameData.adminPassword = 'admin123';
+                    gameData.votingDeadline = getNextTuesday();
+                    gameData.gameNightDate = getNextWednesday();
                 }
             } catch (error) {
                 console.error('Error loading data:', error);
                 alert('Error connecting to Google Sheets. Please check your internet connection.');
                 gameData.adminPassword = 'admin123';
+                gameData.votingDeadline = getNextTuesday();
+                gameData.gameNightDate = getNextWednesday();
             }
             updateAllDisplays();
+        }
+
+        // Helper function to get next Tuesday
+        function getNextTuesday() {
+            const today = new Date();
+            const dayOfWeek = today.getDay();
+            const daysUntilTuesday = (2 - dayOfWeek + 7) % 7 || 7;
+            const nextTuesday = new Date(today);
+            nextTuesday.setDate(today.getDate() + daysUntilTuesday);
+            return nextTuesday.toISOString().split('T')[0];
+        }
+
+        // Helper function to get next Wednesday
+        function getNextWednesday() {
+            const today = new Date();
+            const dayOfWeek = today.getDay();
+            const daysUntilWednesday = (3 - dayOfWeek + 7) % 7 || 7;
+            const nextWednesday = new Date(today);
+            nextWednesday.setDate(today.getDate() + daysUntilWednesday);
+            return nextWednesday.toISOString().split('T')[0];
         }
 
         // Admin login
@@ -497,9 +625,6 @@
                 document.getElementById('adminPanel').style.display = 'block';
                 document.getElementById('winnerRecordingSection').style.display = 'block';
                 document.getElementById('adminPassword').value = '';
-                
-                // Refresh games display to show delete buttons
-                displayGames();
                 
                 // Show a notice about changing the default password
                 if (gameData.adminPassword === 'admin123') {
@@ -517,9 +642,6 @@
             document.getElementById('adminLogin').style.display = 'block';
             document.getElementById('adminPanel').style.display = 'none';
             document.getElementById('winnerRecordingSection').style.display = 'none';
-            
-            // Refresh games display to hide delete buttons
-            displayGames();
         }
 
         // Change admin password (optimistic update)
@@ -559,6 +681,7 @@
                         history: JSON.stringify(gameData.history),
                         settings: JSON.stringify({
                             votingDeadline: gameData.votingDeadline,
+                            gameNightDate: gameData.gameNightDate,
                             adminPassword: gameData.adminPassword
                         })
                     })
@@ -588,14 +711,17 @@
         function updateVotingStatus() {
             const statusDiv = document.getElementById('votingStatus');
             const warningDiv = document.getElementById('votingWarning');
-            const deadlineInput = document.getElementById('votingDeadline');
+            const votingDeadlineInput = document.getElementById('votingDeadline');
+            const gameNightDateInput = document.getElementById('gameNightDate');
             
             console.log('updateVotingStatus called, deadline:', gameData.votingDeadline);
             
-            // Update the input field with current deadline
+            // Update the input fields with current dates
             if (gameData.votingDeadline) {
-                deadlineInput.value = gameData.votingDeadline;
-                console.log('Set input field to:', gameData.votingDeadline);
+                votingDeadlineInput.value = gameData.votingDeadline;
+            }
+            if (gameData.gameNightDate) {
+                gameNightDateInput.value = gameData.gameNightDate;
             }
             
             if (!gameData.votingDeadline) {
@@ -621,29 +747,32 @@
             }
         }
 
-        // Save voting deadline (optimistic update)
-        async function saveVotingDeadline() {
+        // Save game night dates (optimistic update)
+        async function saveGameNightDates() {
             if (!isAdminLoggedIn) {
                 alert('Admin access required');
                 return;
             }
             
-            const deadline = document.getElementById('votingDeadline').value;
-            if (!deadline) {
-                alert('Please select a deadline date');
+            const gameNightDate = document.getElementById('gameNightDate').value;
+            const votingDeadline = document.getElementById('votingDeadline').value;
+            
+            if (!gameNightDate || !votingDeadline) {
+                alert('Please select both dates');
                 return;
             }
             
-            console.log('Setting deadline to:', deadline);
-            gameData.votingDeadline = deadline;
+            gameData.gameNightDate = gameNightDate;
+            gameData.votingDeadline = votingDeadline;
             
             // Optimistic update - refresh UI immediately
+            displayGameNightInfo();
             updateVotingStatus();
-            alert('Voting deadline set successfully!');
+            alert('Dates updated successfully!');
             
             // Save in background (don't await)
             saveData().catch(error => {
-                console.error('Failed to save deadline:', error);
+                console.error('Failed to save dates:', error);
             });
         }
 
@@ -651,6 +780,7 @@
         async function addGame() {
             const ownerName = document.getElementById('ownerName').value.trim();
             const gameName = document.getElementById('gameName').value.trim();
+            const bggLink = document.getElementById('bggLink').value.trim();
             const minPlayers = parseInt(document.getElementById('minPlayers').value);
             const maxPlayers = parseInt(document.getElementById('maxPlayers').value);
             const canTeach = document.getElementById('canTeach').checked;
@@ -672,6 +802,10 @@
                 // Add owner to existing game
                 if (!existingGame.owners.find(o => o.name.toLowerCase() === ownerName.toLowerCase())) {
                     existingGame.owners.push({ name: ownerName, canTeach: canTeach });
+                    // Update BGG link if provided and not already set
+                    if (bggLink && !existingGame.bggLink) {
+                        existingGame.bggLink = bggLink;
+                    }
                 } else {
                     alert(`${ownerName} is already listed as an owner of ${gameName}`);
                     return;
@@ -681,6 +815,7 @@
                 const game = {
                     id: Date.now(),
                     name: gameName,
+                    bggLink: bggLink || null,
                     owners: [{ name: ownerName, canTeach: canTeach }],
                     minPlayers: minPlayers,
                     maxPlayers: maxPlayers
@@ -691,6 +826,7 @@
             // Clear form
             document.getElementById('ownerName').value = '';
             document.getElementById('gameName').value = '';
+            document.getElementById('bggLink').value = '';
             document.getElementById('minPlayers').value = '2';
             document.getElementById('maxPlayers').value = '4';
             document.getElementById('canTeach').checked = false;
@@ -700,6 +836,57 @@
             
             // Save in background (don't await)
             saveData();
+        }
+
+        // Edit BGG link for a game (admin only)
+        async function editBGGLink(gameId) {
+            if (!isAdminLoggedIn) {
+                alert('Admin access required');
+                return;
+            }
+
+            const game = gameData.games.find(g => g.id === gameId);
+            if (!game) return;
+
+            const newLink = prompt(`Enter BoardGameGeek link for "${game.name}":`, game.bggLink || '');
+            if (newLink === null) return; // User cancelled
+
+            game.bggLink = newLink.trim() || null;
+
+            // Optimistic update - refresh UI immediately
+            displayGames();
+            displayVotingGrid();
+            
+            // Save in background
+            saveData();
+        }
+
+        // Display game night info
+        function displayGameNightInfo() {
+            const infoDiv = document.getElementById('gameNightInfo');
+            
+            const gameNightDate = new Date(gameData.gameNightDate);
+            const votingDeadline = new Date(gameData.votingDeadline);
+            
+            const gameNightStr = gameNightDate.toLocaleDateString('en-US', { 
+                weekday: 'long', 
+                year: 'numeric', 
+                month: 'long', 
+                day: 'numeric' 
+            });
+            
+            const votingDeadlineStr = votingDeadline.toLocaleDateString('en-US', { 
+                weekday: 'long', 
+                year: 'numeric', 
+                month: 'long', 
+                day: 'numeric' 
+            });
+            
+            infoDiv.innerHTML = `
+                <h3>📅 Next Game Night</h3>
+                <div class="info-detail"><strong>${gameNightStr}</strong></div>
+                <div class="info-detail" style="margin-top: 10px;">Voting closes: ${votingDeadlineStr}</div>
+            `;
         }
 
         // Delete a game (admin only, optimistic update)
@@ -743,59 +930,64 @@
         }
 
         // Display games list
-        function displayGames() {
-            const gamesDiv = document.getElementById('gamesList');
+        // Display voting grid
+        function displayVotingGrid() {
+            const gridDiv = document.getElementById('votingGrid');
             
             if (gameData.games.length === 0) {
-                gamesDiv.innerHTML = '<p style="color: #999;">No games added yet</p>';
+                gridDiv.innerHTML = '<p style="color: #999;">No games available to vote on</p>';
                 return;
             }
 
-            // Add or remove admin-mode class
-            if (isAdminLoggedIn) {
-                gamesDiv.classList.add('admin-mode');
-            } else {
-                gamesDiv.classList.remove('admin-mode');
-            }
-
-            gamesDiv.innerHTML = gameData.games.map(game => {
+            gridDiv.innerHTML = gameData.games.map(game => {
                 const ownersList = game.owners.map(o => 
-                    `${o.name}${o.canTeach ? ' (can teach)' : ''}`
+                    `${o.name}${o.canTeach ? ' 👨‍🏫' : ''}`
                 ).join(', ');
 
+                const bggLinkHtml = game.bggLink 
+                    ? `<div class="card-detail"><a href="${game.bggLink}" target="_blank" style="color: #667eea;">View Rules</a></div>` 
+                    : '';
+
+                // Check if this game is selected
+                const rank = selectedVotes.indexOf(game.id) + 1;
+                const selectedClass = rank > 0 ? 'selected' : '';
+
                 return `
-                    <div class="game-item">
-                        <button class="delete-btn" onclick="deleteGame(${game.id})">Delete</button>
-                        <h3>${game.name}</h3>
-                        <div class="game-detail">Brought by: ${ownersList}</div>
-                        <div class="game-detail">Players: ${game.minPlayers}-${game.maxPlayers}</div>
+                    <div class="voting-card ${selectedClass}" onclick="selectGame(${game.id})">
+                        <div class="rank-badge">${rank}</div>
+                        <h4>${game.name}</h4>
+                        <div class="card-detail">👥 ${game.minPlayers}-${game.maxPlayers} players</div>
+                        <div class="card-detail">🎲 ${ownersList}</div>
+                        ${bggLinkHtml}
                     </div>
                 `;
             }).join('');
         }
 
-        // Update vote dropdowns
+        // Select a game for voting
+        function selectGame(gameId) {
+            const currentIndex = selectedVotes.indexOf(gameId);
+            
+            if (currentIndex >= 0) {
+                // Game is already selected - deselect it
+                selectedVotes[currentIndex] = null;
+            } else {
+                // Find the first available slot
+                const emptySlot = selectedVotes.indexOf(null);
+                if (emptySlot >= 0) {
+                    selectedVotes[emptySlot] = gameId;
+                } else {
+                    alert('You can only select 3 games. Deselect one first.');
+                    return;
+                }
+            }
+            
+            // Refresh the grid
+            displayVotingGrid();
+        }
+
+        // Update vote dropdowns (legacy - keeping for backward compatibility with winner dropdown)
         function updateVoteDropdowns() {
-            const selects = [
-                document.getElementById('choice1'),
-                document.getElementById('choice2'),
-                document.getElementById('choice3')
-            ];
-
-            selects.forEach(select => {
-                const currentValue = select.value;
-                select.innerHTML = '<option value="">Select a game</option>';
-                
-                gameData.games.forEach(game => {
-                    const option = document.createElement('option');
-                    option.value = game.id;
-                    option.textContent = game.name;
-                    select.appendChild(option);
-                });
-                
-                select.value = currentValue;
-            });
-
             // Update winner dropdown
             const winnerSelect = document.getElementById('winnerGame');
             const currentWinnerValue = winnerSelect.value;
@@ -820,22 +1012,16 @@
             }
 
             const voterName = document.getElementById('voterName').value.trim();
-            const choice1 = document.getElementById('choice1').value;
-            const choice2 = document.getElementById('choice2').value;
-            const choice3 = document.getElementById('choice3').value;
 
             if (!voterName) {
                 alert('Please enter your name');
                 return;
             }
 
-            if (!choice1 || !choice2 || !choice3) {
-                alert('Please select all 3 choices');
-                return;
-            }
-
-            if (choice1 === choice2 || choice1 === choice3 || choice2 === choice3) {
-                alert('Please select 3 different games');
+            // Check if user selected 3 games
+            const validChoices = selectedVotes.filter(id => id !== null);
+            if (validChoices.length !== 3) {
+                alert('Please select exactly 3 games');
                 return;
             }
 
@@ -845,20 +1031,14 @@
             // Add new vote
             const vote = {
                 voterName: voterName,
-                choices: [
-                    parseInt(choice1),
-                    parseInt(choice2),
-                    parseInt(choice3)
-                ]
+                choices: [...selectedVotes]
             };
 
             gameData.votes.push(vote);
 
-            // Clear form
+            // Clear form and selections
             document.getElementById('voterName').value = '';
-            document.getElementById('choice1').value = '';
-            document.getElementById('choice2').value = '';
-            document.getElementById('choice3').value = '';
+            selectedVotes = [null, null, null];
 
             // Optimistic update - refresh UI immediately
             updateAllDisplays();
@@ -1078,7 +1258,8 @@
 
             gameData.games = [];
             gameData.votes = [];
-            gameData.votingDeadline = null;
+            gameData.votingDeadline = getNextTuesday();
+            gameData.gameNightDate = getNextWednesday();
 
             // Optimistic update - refresh UI immediately
             updateAllDisplays();
@@ -1090,7 +1271,8 @@
 
         // Update all displays
         function updateAllDisplays() {
-            displayGames();
+            displayGameNightInfo();
+            displayVotingGrid();
             updateVoteDropdowns();
             displayTopGames();
             displayHistory();
