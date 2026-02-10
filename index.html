@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Board Game Night Organizer</title>
+    <title>Vermont State Legislative Board Game Night</title>
     <style>
         * {
             margin: 0;
@@ -559,7 +559,7 @@
 </head>
 <body>
     <div class="container">
-        <h1>🎲 Board Game Night Organizer</h1>
+        <h1>🎲 Vermont State Legislative boardgame Night</h1>
         
         <!-- Save Status Indicator -->
         <div id="saveStatus" class="save-status">
@@ -854,8 +854,8 @@
                         games: result.data.games || [],
                         votes: votes,
                         history: result.data.history || [],
-                        votingDeadline: toYMD(result.data.settings.votingDeadline) || getNextTuesday(),
-                        gameNightDate: toYMD(result.data.settings.gameNightDate) || getNextWednesday(),
+                        votingDeadline: result.data.settings.votingDeadline || getNextTuesday(),
+                        gameNightDate: result.data.settings.gameNightDate || getNextWednesday(),
                         adminPassword: result.data.settings.adminPassword || 'admin123'
                     };
                     
@@ -881,55 +881,34 @@
             updateAllDisplays();
         }
 
-        // Date helpers (local-safe, avoids UTC toISOString() shifts)
-        function ymdLocal(d) {
-            const y = d.getFullYear();
-            const m = String(d.getMonth() + 1).padStart(2, '0');
-            const day = String(d.getDate()).padStart(2, '0');
-            return `${y}-${m}-${day}`;
-        }
-
-        // Normalize various possible incoming date formats to YYYY-MM-DD
-        function toYMD(value) {
-            if (!value) return null;
-
-            if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
-
-            // Handle ISO strings like 2026-02-11T05:00:00.000Z or other Date-ish strings
-            const d = new Date(value);
-            if (!isNaN(d.getTime())) return ymdLocal(d);
-
-            // Handle MM/DD/YYYY
-            if (typeof value === 'string' && /^\d{1,2}\/\d{1,2}\/\d{4}$/.test(value)) {
-                const [mm, dd, yyyy] = value.split('/').map(Number);
-                const d2 = new Date(yyyy, mm - 1, dd);
-                if (!isNaN(d2.getTime())) return ymdLocal(d2);
-            }
-
-            return null;
-        }
-
-        // Helper function to get next Tuesday (local date)
+        // Helper function to get next Tuesday
+		function ymdLocal(d) {
+         const y = d.getFullYear();
+		 const m = String(d.getMonth() + 1).padStart(2, '0');
+		 const day = String(d.getDate()).padStart(2, '0');
+		 return `${y}-${m}-${day}`;
+}
+		
         function getNextTuesday() {
             const today = new Date();
             const dayOfWeek = today.getDay();
             const daysUntilTuesday = (2 - dayOfWeek + 7) % 7 || 7;
             const nextTuesday = new Date(today);
             nextTuesday.setDate(today.getDate() + daysUntilTuesday);
-            return ymdLocal(nextTuesday);
+            return nextTuesday.toISOString().split('T')[0];
         }
 
-// Helper function to get next Wednesday (local date)
+        // Helper function to get next Wednesday
         function getNextWednesday() {
             const today = new Date();
             const dayOfWeek = today.getDay();
             const daysUntilWednesday = (3 - dayOfWeek + 7) % 7 || 7;
             const nextWednesday = new Date(today);
             nextWednesday.setDate(today.getDate() + daysUntilWednesday);
-            return ymdLocal(nextWednesday);
+            return nextWednesday.toISOString().split('T')[0];
         }
 
-// Admin login
+        // Admin login
         function adminLogin() {
             const password = document.getElementById('adminPassword').value;
             
@@ -1220,16 +1199,7 @@
         function displayGameNightInfo() {
             const infoDiv = document.getElementById('gameNightInfo');
             
-            
-            // Guard against missing/invalid dates (prevents "Invalid Date" for visitors if load fails)
-            if (!gameData.gameNightDate || !gameData.votingDeadline) {
-                infoDiv.innerHTML = `
-                    <h3>📅 Next Game Night</h3>
-                    <div class="info-detail">Dates not set yet</div>
-                `;
-                return;
-            }
-// Parse dates as local dates (not UTC) to avoid timezone issues
+            // Parse dates as local dates (not UTC) to avoid timezone issues
             const [gnYear, gnMonth, gnDay] = gameData.gameNightDate.split('-').map(Number);
             const gameNightDate = new Date(gnYear, gnMonth - 1, gnDay);
             
