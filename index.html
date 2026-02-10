@@ -844,22 +844,41 @@
                 
                 if (result.success && result.data) {
                     // Convert votes back to proper format
+                    const toId = (v) => {
+                        const n = parseInt(v, 10);
+                        return Number.isFinite(n) ? n : null;
+                    };
                     const votes = (result.data.votes || []).map(vote => ({
                         voterName: vote.voterName,
                         choices: [
-                            parseInt(vote.choice1),
-                            parseInt(vote.choice2),
-                            parseInt(vote.choice3)
+                            toId(vote.choice1),
+                            toId(vote.choice2),
+                            toId(vote.choice3)
                         ]
                     }));
                     
+                    // Parse manualAssignments (stored as JSON string in Settings sheet)
+                    let manualAssignments = {};
+                    try {
+                        const raw = result.data.settings.manualAssignments;
+                        if (raw && typeof raw === 'string') {
+                            manualAssignments = JSON.parse(raw);
+                        } else if (raw && typeof raw === 'object') {
+                            manualAssignments = raw;
+                        }
+                    } catch (e) {
+                        console.warn('Failed to parse manualAssignments, ignoring.', e);
+                        manualAssignments = {};
+                    }
+
                     gameData = {
                         games: result.data.games || [],
                         votes: votes,
                         history: result.data.history || [],
                         votingDeadline: result.data.settings.votingDeadline || getNextTuesday(),
                         gameNightDate: result.data.settings.gameNightDate || getNextWednesday(),
-                        adminPassword: result.data.settings.adminPassword || 'admin123'
+                        adminPassword: result.data.settings.adminPassword || 'admin123',
+                        manualAssignments: manualAssignments
                     };
                     
                     console.log('Data loaded successfully. Games:', gameData.games.length);
@@ -1268,21 +1287,10 @@
         
         // Admin: assign/unassign a player to a specific game (manual override)
         async function adminAssignPlayer(nameKey, gameId) {
-            if (!isAdminLoggedIn) {
-                alert('Admin access required');
-                return;
-            }
-            if (!gameId) {
-                alert('Pick a game to assign this player to.');
-                return;
-            }
-
-            const gid = parseInt(gameId);
+            if (!isAdminLoggedIn) { alert('Admin access required'); return; }
+            const gid = parseInt(gameId, 10);
             const game = gameData.games.find(g => g.id === gid);
-            if (!game) {
-                alert('Game not found');
-                return;
-            }
+            if (!game) { alert('Game not found'); return; }
 
             if (!gameData.manualAssignments || typeof gameData.manualAssignments !== 'object') {
                 gameData.manualAssignments = {};
@@ -1295,11 +1303,16 @@
             saveData();
         }
 
+        // Admin: clear manual override for a player (returns them to automatic seating)
         async function adminUnassignPlayer(nameKey) {
-            if (!isAdminLoggedIn) {
-                alert('Admin access required');
-                return;
+            if (!isAdminLoggedIn) { alert('Admin access required'); return; }
+
+            if (gameData.manualAssignments && Object.prototype.hasOwnProperty.call(gameData.manualAssignments, nameKey)) {
+                delete gameData.manualAssignments[nameKey];
+                updateAllDisplays();
+                saveData();
             }
+        }
 
         // Admin: force a player to remain unassigned (won't be auto-seated)
         async function adminForceUnassigned(nameKey) {
@@ -1312,14 +1325,9 @@
             saveData();
         }
 
-        // Admin: clear manual override (returns player to automatic seating)
+        // Admin: clear manual override (alias)
         async function adminClearManual(nameKey) {
-            if (!isAdminLoggedIn) { alert('Admin access required'); return; }
-            if (gameData.manualAssignments && Object.prototype.hasOwnProperty.call(gameData.manualAssignments, nameKey)) {
-                delete gameData.manualAssignments[nameKey];
-                updateAllDisplays();
-                saveData();
-            }
+            return adminUnassignPlayer(nameKey);
         }
 
         // Admin: apply move command from UI
@@ -1335,12 +1343,6 @@
             return adminAssignPlayer(nameKey, val);
         }
 
-            if (gameData.manualAssignments && gameData.manualAssignments[nameKey]) {
-                delete gameData.manualAssignments[nameKey];
-                updateAllDisplays();
-                saveData();
-            }
-        }
 
 // Display voting grid
         function displayVotingGrid() {
@@ -1496,7 +1498,13 @@
                 const key = normalizeName(v.voterName);
                 if (!key || seen.has(key)) continue;
                 seen.add(key);
-                const choices = (v.choices || []).filter(id => id != null);
+                const rawChoices = Array.isArray(v.choices) ? v.choices.slice(0, 3) : [];
+                // Normalize to [id1, id2, id3] where each is a number or null
+                const choices = rawChoices.map(x => {
+                    const n = parseInt(x, 10);
+                    return Number.isFinite(n) ? n : null;
+                });
+                while (choices.length < 3) choices.push(null);
                 voters.push({ key, name: String(v.voterName).trim(), choices });
             }
 
@@ -1508,7 +1516,7 @@
             // Track assignments
             const selectedGames = [];
             const assignedPlayers = new Set(); // normalized names
-            const assignmentDetails = {}; // gameId -> [{name, rank}]
+            const assignmentDetails = {}; // gameId -> [{name, key, rank}]
             const spilloverByGame = {}; // gameId -> [overflow messages]
             const seatNotes = {}; // normalized name -> note
 
@@ -1536,7 +1544,7 @@
                             
                             const currentCount = assignmentDetails[forcedGameId].length;
                             if (currentCount < (game.maxPlayers || 999)) {
-                                assignmentDetails[forcedGameId].push({ name: voter.name, rank: 0 });
+                                assignmentDetails[forcedGameId].push({ name: voter.name, key: voter.key, rank: 0 });
                                 assignedPlayers.add(voter.key);
                                 
                                 // Add to selectedGames if not already there
@@ -1605,7 +1613,7 @@
                     const losers = sortedApplicants.slice(seatsAvailable);
 
                     for (const winner of winners) {
-                        assignmentDetails[gameId].push({ name: winner.name, rank: rank + 1 });
+                        assignmentDetails[gameId].push({ name: winner.name, key: winner.key, rank: rank + 1 });
                         assignedPlayers.add(winner.key);
                     }
 
@@ -1633,12 +1641,8 @@
                 return h;
             }
 
-            // Build unassigned list
-            const unassigned = voters
-                .filter(v => !assignedPlayers.has(v.key))
-                .map(v => v.name);
-
-            lastSeatingState = { unassigned, seatNotes };
+            // We'll compute the unassigned list *after* deciding which games are displayed.
+// (Important: players seated into a game that ends up not being shown should still appear as unassigned.)
 
             // Calculate scores for display (3-2-1 point system)
             const scoreByGame = {};
@@ -1672,6 +1676,22 @@
                     };
                 })
                 .sort((a, b) => b.score - a.score);
+
+            // Build unassigned list relative to *displayed* games
+            const includedGameIds = new Set(results.map(r => r.game.id));
+            const assignedInDisplayed = new Set();
+            for (const gid of includedGameIds) {
+                const rows = assignmentDetails[gid] || [];
+                for (const row of rows) {
+                    if (row && row.key) assignedInDisplayed.add(row.key);
+                }
+            }
+
+            const unassigned = voters
+                .filter(v => !assignedInDisplayed.has(v.key))
+                .map(v => v.name);
+
+            lastSeatingState = { unassigned, seatNotes };
 
             return results;
         }
