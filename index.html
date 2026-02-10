@@ -1657,18 +1657,10 @@
             }
 
             function validateSeating(activeIds, seating) {
-                // A selected game must not end up "partially filled" below minPlayers,
-                // and also shouldn't be selected if nobody ended up in it.
+                // Hard reject only truly empty tables; treat minPlayers as a soft constraint (scored later).
                 for (const id of activeIds) {
-                    const game = gameData.games.find(g => g.id === id);
-                    if (!game) return false;
-
                     const assignedCount = seating.assignedByGame[id]?.length || 0;
-
                     if (assignedCount === 0) return false;
-
-                    const minP = game.minPlayers || 0;
-                    if (minP > 0 && assignedCount < minP) return false;
                 }
                 return true;
             }
@@ -1676,10 +1668,16 @@
             function outcomeMetrics(activeIds, seating) {
                 let totalAssigned = 0;
                 let first = 0, second = 0, third = 0, manual = 0;
+                let belowMin = 0;
 
                 for (const id of activeIds) {
+                    const game = gameData.games.find(g => g.id === id);
                     const rows = seating.assignedByGame[id] || [];
                     totalAssigned += rows.length;
+
+                    const minP = game?.minPlayers || 0;
+                    if (minP > 0 && rows.length > 0 && rows.length < minP) belowMin++;
+
                     for (const r of rows) {
                         if (r.rank === 0) manual++;
                         else if (r.rank === 1) first++;
@@ -1690,21 +1688,36 @@
 
                 const unassignedCount = seating.unassigned.length;
 
-                return { totalAssigned, first, second, third, manual, unassignedCount };
+                return { 
+                    totalAssigned, first, second, third, manual, 
+                    unassignedCount,
+                    belowMin,
+                    gameCount: activeIds.length
+                };
             }
 
             function betterOutcome(a, b) {
-                // Maximize seated people first. Then maximize 1st/2nd choice.
-                // Then minimize 3rd choice and unassigned.
                 if (!b) return true;
 
-                if (a.totalAssigned !== b.totalAssigned) return a.totalAssigned > b.totalAssigned;
-                if (a.first !== b.first) return a.first > b.first;
-                if (a.second !== b.second) return a.second > b.second;
-                if (a.third !== b.third) return a.third < b.third;
+                // 1) Primary: minimize unassigned (try to seat everyone)
                 if (a.unassignedCount !== b.unassignedCount) return a.unassignedCount < b.unassignedCount;
 
-                // final tie-break: prefer fewer games (not relevant here) / higher total points
+                // 2) Then maximize seated people (mostly redundant with unassignedCount, but safe)
+                if (a.totalAssigned !== b.totalAssigned) return a.totalAssigned > b.totalAssigned;
+
+                // 3) Then maximize 1st/2nd choices
+                if (a.first !== b.first) return a.first > b.first;
+                if (a.second !== b.second) return a.second > b.second;
+
+                // 4) Prefer fewer tables when outcomes are otherwise similar
+                if (a.gameCount !== b.gameCount) return a.gameCount < b.gameCount;
+
+                // 5) Prefer meeting minPlayers when possible (soft)
+                if (a.belowMin !== b.belowMin) return a.belowMin < b.belowMin;
+
+                // 6) Finally minimize 3rd-choice assignments
+                if (a.third !== b.third) return a.third < b.third;
+
                 return false;
             }
 
@@ -1725,26 +1738,27 @@
                 return out;
             }
 
-            const targetGames = Math.min(playerCountTarget(voters.length), candidatePoolIds.length);
-            const subsets = (targetGames <= 0) ? [] : combinations(candidatePoolIds, targetGames);
-
+            const maxK = Math.min(3, candidatePoolIds.length);
             let best = null;
 
-            for (const subsetIds of subsets) {
-                const seating = runSeating(subsetIds);
-                if (!validateSeating(subsetIds, seating)) continue;
+            // Try 1..maxK games and pick the best overall seating outcome.
+            for (let k = 1; k <= maxK; k++) {
+                const subsets = combinations(candidatePoolIds, k);
+                for (const subsetIds of subsets) {
+                    const seating = runSeating(subsetIds);
+                    if (!validateSeating(subsetIds, seating)) continue;
 
-                const metrics = outcomeMetrics(subsetIds, seating);
-                if (betterOutcome(metrics, best?.metrics)) {
-                    best = { ids: subsetIds, seating, metrics };
+                    const metrics = outcomeMetrics(subsetIds, seating);
+                    if (betterOutcome(metrics, best?.metrics)) {
+                        best = { ids: subsetIds, seating, metrics };
+                    }
                 }
             }
 
-            // Fallback if no valid subset (rare): just pick top scored games
+            // Fallback if no valid subset (rare): just pick top scored game(s)
             if (!best) {
-                const fallbackIds = candidatePoolIds.slice(0, targetGames);
+                const fallbackIds = candidatePoolIds.slice(0, 1);
                 const seating = runSeating(fallbackIds);
-
                 best = { ids: fallbackIds, seating, metrics: outcomeMetrics(fallbackIds, seating) };
             }
 
