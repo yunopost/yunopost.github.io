@@ -925,6 +925,48 @@
             return nextWednesday.toISOString().split('T')[0];
         }
 
+
+        // -------- Date helpers (consistent formatting; avoids UTC/local mismatches) --------
+        function parseDateLoose(value) {
+            if (value == null) return null;
+            if (value instanceof Date) return isNaN(value.getTime()) ? null : value;
+
+            // Numbers (epoch millis)
+            if (typeof value === 'number') {
+                const dNum = new Date(value);
+                return isNaN(dNum.getTime()) ? null : dNum;
+            }
+
+            const s = String(value).trim();
+            if (!s) return null;
+
+            // Treat bare YYYY-MM-DD as a *local* date (avoids timezone shifting)
+            if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+                const [y, m, d] = s.split('-').map(Number);
+                const dt = new Date(y, m - 1, d);
+                return isNaN(dt.getTime()) ? null : dt;
+            }
+
+            // Try native parsing (handles ISO like 2026-02-11T05:00:00.000Z)
+            const dt = new Date(s);
+            if (!isNaN(dt.getTime())) return dt;
+
+            // Fallback: MM/DD/YYYY
+            if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(s)) {
+                const [mm, dd, yy] = s.split('/').map(Number);
+                const dt2 = new Date(yy, mm - 1, dd);
+                return isNaN(dt2.getTime()) ? null : dt2;
+            }
+
+            return null;
+        }
+
+        function formatDateLoose(value, options) {
+            const dt = parseDateLoose(value);
+            if (!dt) return String(value ?? '');
+            return dt.toLocaleDateString('en-US', options || { year: 'numeric', month: 'long', day: 'numeric' });
+        }
+
         // Admin login
         function adminLogin() {
             const password = document.getElementById('adminPassword').value;
@@ -979,14 +1021,12 @@
         // Check if voting is open
         function isVotingOpen() {
             if (!gameData.votingDeadline) return true;
-            
-            // Parse deadline as local date
-            const [year, month, day] = gameData.votingDeadline.split('-').map(Number);
-            const deadline = new Date(year, month - 1, day);
-            
-            // Set deadline to end of day (11:59:59 PM)
-            deadline.setHours(23, 59, 59, 999);
-            
+
+            const d0 = parseDateLoose(gameData.votingDeadline);
+            if (!d0) return true;
+
+            // End of local day
+            const deadline = new Date(d0.getFullYear(), d0.getMonth(), d0.getDate(), 23, 59, 59, 999);
             const now = new Date();
             return now < deadline;
         }
@@ -997,40 +1037,41 @@
             const warningDiv = document.getElementById('votingWarning');
             const votingDeadlineInput = document.getElementById('votingDeadline');
             const gameNightDateInput = document.getElementById('gameNightDate');
-            
+
             console.log('updateVotingStatus called, deadline:', gameData.votingDeadline);
-            
-            // Update the input fields with current dates
-            if (gameData.votingDeadline) {
+
+            // Update the input fields with current dates (these expect YYYY-MM-DD)
+            if (gameData.votingDeadline && typeof gameData.votingDeadline === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(gameData.votingDeadline)) {
                 votingDeadlineInput.value = gameData.votingDeadline;
             }
-            if (gameData.gameNightDate) {
+            if (gameData.gameNightDate && typeof gameData.gameNightDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(gameData.gameNightDate)) {
                 gameNightDateInput.value = gameData.gameNightDate;
             }
-            
+
             if (!gameData.votingDeadline) {
                 statusDiv.className = 'voting-status voting-open';
                 statusDiv.textContent = 'Voting is OPEN (no deadline set)';
                 warningDiv.style.display = 'none';
+                return;
+            }
+
+            const deadlineDate = parseDateLoose(gameData.votingDeadline);
+            const dateStr = formatDateLoose(deadlineDate || gameData.votingDeadline, {
+                weekday: 'long',
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric'
+            });
+
+            if (isVotingOpen()) {
+                statusDiv.className = 'voting-status voting-open';
+                statusDiv.textContent = `Voting is OPEN until ${dateStr}`;
+                warningDiv.style.display = 'none';
             } else {
-                // Parse as local date to avoid timezone issues
-                const [year, month, day] = gameData.votingDeadline.split('-').map(Number);
-                const deadline = new Date(year, month - 1, day);
-                
-                console.log('Deadline date object:', deadline);
-                const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
-                const dateStr = deadline.toLocaleDateString('en-US', options);
-                
-                if (isVotingOpen()) {
-                    statusDiv.className = 'voting-status voting-open';
-                    statusDiv.textContent = `Voting is OPEN until ${dateStr}`;
-                    warningDiv.style.display = 'none';
-                } else {
-                    statusDiv.className = 'voting-status voting-closed';
-                    statusDiv.textContent = `Voting CLOSED on ${dateStr}`;
-                    warningDiv.style.display = 'block';
-                    warningDiv.textContent = 'Voting is currently closed. Contact the organizer to reopen voting.';
-                }
+                statusDiv.className = 'voting-status voting-closed';
+                statusDiv.textContent = `Voting CLOSED on ${dateStr}`;
+                warningDiv.style.display = 'block';
+                warningDiv.textContent = 'Voting is currently closed. Contact the organizer to reopen voting.';
             }
         }
 
@@ -1215,28 +1256,21 @@
         // Display game night info
         function displayGameNightInfo() {
             const infoDiv = document.getElementById('gameNightInfo');
-            
-            // Parse dates as local dates (not UTC) to avoid timezone issues
-            const [gnYear, gnMonth, gnDay] = gameData.gameNightDate.split('-').map(Number);
-            const gameNightDate = new Date(gnYear, gnMonth - 1, gnDay);
-            
-            const [vdYear, vdMonth, vdDay] = gameData.votingDeadline.split('-').map(Number);
-            const votingDeadline = new Date(vdYear, vdMonth - 1, vdDay);
-            
-            const gameNightStr = gameNightDate.toLocaleDateString('en-US', { 
-                weekday: 'long', 
-                year: 'numeric', 
-                month: 'long', 
-                day: 'numeric' 
+
+            const gameNightStr = formatDateLoose(gameData.gameNightDate, {
+                weekday: 'long',
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric'
             });
-            
-            const votingDeadlineStr = votingDeadline.toLocaleDateString('en-US', { 
-                weekday: 'long', 
-                year: 'numeric', 
-                month: 'long', 
-                day: 'numeric' 
+
+            const votingDeadlineStr = formatDateLoose(gameData.votingDeadline, {
+                weekday: 'long',
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric'
             });
-            
+
             infoDiv.innerHTML = `
                 <h3>📅 Next Game Night</h3>
                 <div class="info-detail"><strong>${gameNightStr}</strong></div>
@@ -1894,42 +1928,28 @@
         // Display history
         function displayHistory() {
             const historyDiv = document.getElementById('historyList');
-            
+
             if (gameData.history.length === 0) {
                 historyDiv.innerHTML = '<p style="color: #999;">No game history yet</p>';
                 return;
             }
 
-            // Sort by date descending
-            const sortedHistory = [...gameData.history].sort((a, b) => 
-                new Date(b.date) - new Date(a.date)
-            );
+            // Sort by date descending (best-effort)
+            const sortedHistory = [...gameData.history].sort((a, b) => {
+                const da = parseDateLoose(a.date);
+                const db = parseDateLoose(b.date);
+                const ta = da ? da.getTime() : 0;
+                const tb = db ? db.getTime() : 0;
+                return tb - ta;
+            });
 
             historyDiv.innerHTML = sortedHistory.map(entry => {
-                let date;
-                
-                // Handle different date formats from Google Sheets
-                if (typeof entry.date === 'string' && entry.date.includes('-')) {
-                    // Format: "YYYY-MM-DD"
-                    const [year, month, day] = entry.date.split('-').map(Number);
-                    date = new Date(year, month - 1, day);
-                } else if (typeof entry.date === 'string' && entry.date.includes('/')) {
-                    // Format: "MM/DD/YYYY" or similar
-                    date = new Date(entry.date);
-                } else {
-                    // Fallback: try to parse as-is
-                    date = new Date(entry.date);
-                }
-                
-                // Check if date is valid
-                const dateStr = isNaN(date.getTime()) 
-                    ? entry.date // If invalid, just show the raw value
-                    : date.toLocaleDateString('en-US', { 
-                        weekday: 'long', 
-                        year: 'numeric', 
-                        month: 'long', 
-                        day: 'numeric' 
-                      });
+                const dateStr = formatDateLoose(entry.date, {
+                    weekday: 'long',
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric'
+                });
 
                 return `
                     <div class="history-item">
