@@ -687,7 +687,8 @@
                         <input type="date" id="votingDeadline">
                     </div>
                     <button onclick="saveGameNightDates()">Set Dates</button>
-                    <button class="danger" onclick="resetForNewWeek()">Reset for New Week</button>
+                    <button class="secondary" onclick="resetVotesOnly()" style="margin-top: 10px;">Reset Votes Only</button>
+                    <button class="danger" onclick="resetForNewWeek()">Reset for New Week (Games + Votes)</button>
                     
                     <!-- Game Management Section -->
                     <div class="manage-games-section">
@@ -1905,7 +1906,10 @@
             );
 
             historyDiv.innerHTML = sortedHistory.map(entry => {
-                const date = new Date(entry.date);
+                // Parse date as local date (not UTC) to avoid timezone issues
+                const [year, month, day] = entry.date.split('-').map(Number);
+                const date = new Date(year, month - 1, day);
+                
                 const dateStr = date.toLocaleDateString('en-US', { 
                     weekday: 'long', 
                     year: 'numeric', 
@@ -1942,6 +1946,29 @@
             // Optimistic update - refresh UI immediately
             updateAllDisplays();
             alert('Reset complete! Ready for a new week.');
+            
+            // Save in background (don't await)
+            saveData();
+        }
+
+        // Reset votes only (keep games)
+        async function resetVotesOnly() {
+            if (!isAdminLoggedIn) {
+                alert('Admin access required');
+                return;
+            }
+            
+            if (!confirm('This will clear all votes but keep the games. Continue?')) {
+                return;
+            }
+
+            gameData.votes = [];
+            gameData.votingDeadline = getNextTuesday();
+            gameData.gameNightDate = getNextWednesday();
+
+            // Optimistic update - refresh UI immediately
+            updateAllDisplays();
+            alert('Votes cleared! Games are still available.');
             
             // Save in background (don't await)
             saveData();
