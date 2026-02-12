@@ -1906,16 +1906,30 @@
             );
 
             historyDiv.innerHTML = sortedHistory.map(entry => {
-                // Parse date as local date (not UTC) to avoid timezone issues
-                const [year, month, day] = entry.date.split('-').map(Number);
-                const date = new Date(year, month - 1, day);
+                let date;
                 
-                const dateStr = date.toLocaleDateString('en-US', { 
-                    weekday: 'long', 
-                    year: 'numeric', 
-                    month: 'long', 
-                    day: 'numeric' 
-                });
+                // Handle different date formats from Google Sheets
+                if (typeof entry.date === 'string' && entry.date.includes('-')) {
+                    // Format: "YYYY-MM-DD"
+                    const [year, month, day] = entry.date.split('-').map(Number);
+                    date = new Date(year, month - 1, day);
+                } else if (typeof entry.date === 'string' && entry.date.includes('/')) {
+                    // Format: "MM/DD/YYYY" or similar
+                    date = new Date(entry.date);
+                } else {
+                    // Fallback: try to parse as-is
+                    date = new Date(entry.date);
+                }
+                
+                // Check if date is valid
+                const dateStr = isNaN(date.getTime()) 
+                    ? entry.date // If invalid, just show the raw value
+                    : date.toLocaleDateString('en-US', { 
+                        weekday: 'long', 
+                        year: 'numeric', 
+                        month: 'long', 
+                        day: 'numeric' 
+                      });
 
                 return `
                     <div class="history-item">
